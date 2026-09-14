@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
 
@@ -20,11 +21,16 @@ namespace VoidChest
                 return;
             }
 
-            if (InventoryGui.instance.IsContainerOpen())
+            bool containerOpen = InventoryGui.instance.IsContainerOpen();
+            bool isOurContainer = containerOpen && IsVoidChestOpen();
+            VLog.Debug($"Toggle: containerOpen={containerOpen}, isOurContainer={isOurContainer}");
+
+            if (containerOpen)
             {
-                if (IsVoidChestOpen())
+                if (isOurContainer)
                 {
                     InventoryGui.instance.Hide();
+                    VLog.Info("关闭虚空宝箱界面。");
                 }
                 return;
             }
@@ -32,10 +38,7 @@ namespace VoidChest
             var item = GetEquippedChest(player);
             if (item == null)
             {
-                if (VoidChestPlugin.DebugLog.Value)
-                {
-                    VoidChestPlugin.Log.LogInfo("未装备虚空宝箱，无法打开。");
-                }
+                VLog.Debug("未装备虚空宝箱，无法打开。");
                 return;
             }
 
@@ -56,10 +59,22 @@ namespace VoidChest
                 return null;
             }
 
-            foreach (var item in inv.GetEquippedItems())
+            var equipped = inv.GetEquippedItems();
+            if (VLog.DebugEnabled)
+            {
+                var names = new List<string>();
+                foreach (var e in equipped)
+                {
+                    names.Add(e?.m_shared?.m_name ?? "?");
+                }
+                VLog.Debug($"已装备物品: [{string.Join(", ", names)}]");
+            }
+
+            foreach (var item in equipped)
             {
                 if (item?.m_dropPrefab != null && item.m_dropPrefab.name.StartsWith(PrefabPrefix))
                 {
+                    VLog.Debug($"检测到虚空宝箱: prefab={item.m_dropPrefab.name}, name={item.m_shared.m_name}");
                     return item;
                 }
             }
@@ -79,7 +94,7 @@ namespace VoidChest
             go.transform.localPosition = Vector3.zero;
 
             _container = go.AddComponent<VirtualContainer>();
-            VoidChestPlugin.Log.LogInfo("虚拟容器已创建。");
+            VLog.Info("虚拟容器已创建。");
             return _container;
         }
 
@@ -96,10 +111,12 @@ namespace VoidChest
             var inv = new Inventory(name, null, size.cols, size.rows);
 
             vc.SuppressSave = true;
+            int itemCount;
             try
             {
                 vc.SetInventory(inv);
                 VoidChestSave.LoadInto(inv, player);
+                itemCount = inv.NrOfItems();
             }
             finally
             {
@@ -109,7 +126,7 @@ namespace VoidChest
             _openItem = item;
             InventoryGui.instance.Show(vc);
 
-            VoidChestPlugin.Log.LogInfo($"打开虚空宝箱: {name} ({size.rows}x{size.cols})");
+            VLog.Info($"打开虚空宝箱: {name} ({size.rows}行x{size.cols}列)，加载 {itemCount} 件物品。");
         }
 
         internal static (int rows, int cols) GetSize(ItemDrop.ItemData item)
@@ -144,6 +161,7 @@ namespace VoidChest
             var inv = _container.GetInventory();
             if (inv != null)
             {
+                VLog.Debug($"Player.Save 触发 flush，当前库存 {inv.NrOfItems()} 件。");
                 VoidChestSave.SaveFrom(inv, player);
             }
         }

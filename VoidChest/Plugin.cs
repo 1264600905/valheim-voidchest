@@ -12,7 +12,7 @@ namespace VoidChest
     {
         public const string Guid = "liu.valheim.voidchest";
         public const string PluginName = "Void Chest";
-        public const string PluginVersion = "0.1.0";
+        public const string PluginVersion = "0.1.1";
 
         internal static VoidChestPlugin Instance;
         internal static ManualLogSource Log;
@@ -28,15 +28,22 @@ namespace VoidChest
 
             OpenHotkey = Config.Bind("General", "OpenHotkey", KeyCode.B,
                 "打开/关闭虚空宝箱容器界面的热键。");
-            DebugLog = Config.Bind("General", "DebugLog", false,
-                "输出调试日志。");
+            DebugLog = Config.Bind("General", "DebugLog", true,
+                "输出详细调试日志（诊断用，默认开启）。");
+
+            VLog.Info($"{PluginName} v{PluginVersion} 初始化中...");
 
             _harmony = new Harmony(Guid);
             _harmony.PatchAll(typeof(VoidChestPlugin).Assembly);
 
+            foreach (var method in _harmony.GetPatchedMethods())
+            {
+                VLog.Info($"  Harmony patch: {method.DeclaringType?.Name}.{method.Name}");
+            }
+
             VoidChestItems.Register();
 
-            Log.LogInfo($"{PluginName} v{PluginVersion} loaded. Hotkey={OpenHotkey.Value}");
+            VLog.Info($"{PluginName} v{PluginVersion} 初始化完成。热键={OpenHotkey.Value}, Debug={DebugLog.Value}");
         }
 
         private void Update()

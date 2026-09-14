@@ -19,6 +19,7 @@ namespace VoidChest
         internal void InitVirtual()
         {
             SetInventory(new Inventory("Void Chest", null, 6, 2));
+            VLog.Debug("VirtualContainer.InitVirtual: 占位 Inventory 6x2 已创建。");
         }
 
         internal void SetInventory(Inventory inv)
@@ -35,12 +36,15 @@ namespace VoidChest
             {
                 inv.m_onChanged = (Action)Delegate.Combine(inv.m_onChanged, new Action(OnInventoryChanged));
             }
+
+            VLog.Debug($"VirtualContainer.SetInventory: {(inv != null ? inv.GetWidth() + "x" + inv.GetHeight() : "null")}");
         }
 
         private void OnInventoryChanged()
         {
             if (SuppressSave)
             {
+                VLog.Debug("OnInventoryChanged: SuppressSave=true，跳过保存。");
                 return;
             }
 
@@ -48,6 +52,7 @@ namespace VoidChest
             var inv = GetInventory();
             if (player != null && inv != null)
             {
+                VLog.Debug($"OnInventoryChanged: 库存变更 -> {inv.NrOfItems()} 件，保存。");
                 VoidChestSave.SaveFrom(inv, player);
             }
         }

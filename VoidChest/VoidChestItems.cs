@@ -29,14 +29,18 @@ namespace VoidChest
         internal static void Register()
         {
             PrefabManager.OnVanillaPrefabsAvailable += RegisterItems;
+            VLog.Info("已订阅 PrefabManager.OnVanillaPrefabsAvailable");
         }
 
         private static void RegisterItems()
         {
             if (_registered)
             {
+                VLog.Debug("物品已注册过，跳过。");
                 return;
             }
+
+            VLog.Info("原版 prefab 可用，开始注册虚空宝箱...");
 
             try
             {
@@ -69,16 +73,23 @@ namespace VoidChest
                 });
 
                 _registered = true;
-                VoidChestPlugin.Log.LogInfo("虚空宝箱物品与配方注册完成。");
+                VLog.Info("虚空宝箱物品与配方注册完成。");
             }
             catch (Exception e)
             {
-                VoidChestPlugin.Log.LogError("注册虚空宝箱失败: " + e);
+                VLog.Error("注册虚空宝箱失败: ", e);
             }
         }
 
         private static void Add(string prefabName, string displayName, string station, RequirementConfig[] requirements)
         {
+            var reqText = new List<string>();
+            foreach (var r in requirements)
+            {
+                reqText.Add($"{r.Item}x{r.Amount}");
+            }
+            VLog.Info($"注册 [{prefabName}] 名称={displayName} 工作台={station} 材料={string.Join(", ", reqText)}");
+
             var config = new ItemConfig
             {
                 Name = prefabName,
@@ -91,10 +102,24 @@ namespace VoidChest
             };
 
             var item = new CustomItem(prefabName, BasePrefab, config);
+
+            if (item.ItemPrefab == null)
+            {
+                VLog.Error($"[{prefabName}] CustomItem.ItemPrefab 为空（克隆 {BasePrefab} 失败）");
+            }
+
             Sanitize(item, prefabName, displayName);
             ItemManager.Instance.AddItem(item);
 
-            VoidChestPlugin.Log.LogInfo($"已注册物品: {prefabName} ({displayName}) @ {station}");
+            var recipe = item.Recipe;
+            if (recipe == null)
+            {
+                VLog.Warn($"[{prefabName}] 配方未生成（Recipe 为空）。");
+            }
+            else
+            {
+                VLog.Info($"[{prefabName}] 配方已生成: {recipe.Recipe?.m_resources?.Length ?? 0} 项材料, 工作台={recipe.Recipe?.m_craftingStation?.name}");
+            }
         }
 
         private static void Sanitize(CustomItem item, string prefabName, string displayName)
@@ -102,7 +127,7 @@ namespace VoidChest
             var prefab = item.ItemPrefab;
             if (prefab == null)
             {
-                VoidChestPlugin.Log.LogError($"[{prefabName}] 克隆失败：prefab 为空。");
+                VLog.Error($"[{prefabName}] 克隆失败：prefab 为空。");
                 return;
             }
 
@@ -115,7 +140,7 @@ namespace VoidChest
                     names.Add(c.GetType().Name);
                 }
             }
-            VoidChestPlugin.Log.LogInfo($"[{prefabName}] 组件结构: {string.Join(", ", names)}");
+            VLog.Info($"[{prefabName}] 组件结构: {string.Join(", ", names)}");
 
             foreach (var c in components)
             {
@@ -126,6 +151,7 @@ namespace VoidChest
 
                 if (c is Container || c is Piece || c is WearNTear || c is Destructible || c is PrivateArea)
                 {
+                    VLog.Info($"[{prefabName}] 移除组件: {c.GetType().Name}");
                     UnityEngine.Object.DestroyImmediate(c);
                 }
             }
@@ -133,7 +159,7 @@ namespace VoidChest
             var drop = item.ItemDrop;
             if (drop == null)
             {
-                VoidChestPlugin.Log.LogError($"[{prefabName}] 没有 ItemDrop 组件。");
+                VLog.Error($"[{prefabName}] 没有 ItemDrop 组件，无法作为物品。");
                 return;
             }
 
@@ -148,22 +174,39 @@ namespace VoidChest
             shared.m_name = displayName;
             shared.m_description = "一个随身携带的虚空宝箱。内容绑定在你的角色存档上，装备后按热键打开。";
 
+            VLog.Info($"[{prefabName}] ItemDrop: name={shared.m_name}, type={shared.m_itemType}, weight={shared.m_weight}, icons={(shared.m_icons?.Length ?? 0)}");
+
             var tint = Tints[prefabName];
 
-            if (shared.m_icons != null)
+            if (shared.m_icons != null && shared.m_icons.Length > 0)
             {
                 for (int i = 0; i < shared.m_icons.Length; i++)
                 {
-                    shared.m_icons[i] = RecolorSprite(shared.m_icons[i], tint);
+                    var source = shared.m_icons[i];
+                    var recolored = RecolorSprite(source, tint);
+                    shared.m_icons[i] = recolored;
+                    VLog.Info($"[{prefabName}] 图标[{i}] {SpriteInfo(source)} -> {SpriteInfo(recolored)}");
                 }
-                VoidChestPlugin.Log.LogInfo($"[{prefabName}] 图标数量: {shared.m_icons.Length}");
             }
             else
             {
-                VoidChestPlugin.Log.LogWarning($"[{prefabName}] 没有图标。");
+                VLog.Warn($"[{prefabName}] 没有图标（m_icons 为空）。");
             }
 
-            RecolorRenderers(prefab, tint);
+            var recoloredMaterials = RecolorRenderers(prefab, tint);
+            VLog.Info($"[{prefabName}] 材质换色: {recoloredMaterials} 个材质设置 tint={ColorUtility.ToHtmlStringRGB(tint)}");
+        }
+
+        private static string SpriteInfo(Sprite sprite)
+        {
+            if (sprite == null)
+            {
+                return "null";
+            }
+
+            var tex = sprite.texture;
+            var rect = sprite.textureRect;
+            return $"{(tex != null ? tex.width + "x" + tex.height : "no-tex")}/rect({rect.x},{rect.y},{rect.width},{rect.height})/ppu{sprite.pixelsPerUnit}";
         }
 
         private static Sprite RecolorSprite(Sprite src, Color tint)
@@ -231,8 +274,10 @@ namespace VoidChest
             }
         }
 
-        private static void RecolorRenderers(GameObject root, Color tint)
+        private static int RecolorRenderers(GameObject root, Color tint)
         {
+            int count = 0;
+
             foreach (var renderer in root.GetComponentsInChildren<Renderer>(true))
             {
                 var materials = renderer.materials;
@@ -246,6 +291,7 @@ namespace VoidChest
                     if (mat.HasProperty("_Color"))
                     {
                         mat.SetColor("_Color", tint);
+                        count++;
                     }
 
                     if (mat.HasProperty("_EmissionColor"))
@@ -254,6 +300,8 @@ namespace VoidChest
                     }
                 }
             }
+
+            return count;
         }
     }
 }
