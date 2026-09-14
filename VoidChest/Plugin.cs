@@ -12,7 +12,7 @@ namespace VoidChest
     {
         public const string Guid = "liu.valheim.voidchest";
         public const string PluginName = "Void Chest";
-        public const string PluginVersion = "0.4.0";
+        public const string PluginVersion = "0.4.1";
 
         internal static VoidChestPlugin Instance;
         internal static ManualLogSource Log;

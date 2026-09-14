@@ -74,4 +74,17 @@
     </Reference>
   </ItemGroup>
 
+  <!--
+    发布文件：构建成功后同步到输出目录（BepInEx/plugins/VoidChest/），
+    与 Thunderstore 包结构一致（参考 ValheimModding-YamlDotNet）。
+    使用显式文件列表，避免 MSBuild 通配符导致的目录树误复制。
+  -->
+  <Target Name="CopyReleaseFiles" AfterTargets="Build">
+    <Copy SourceFiles="manifest.json" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="CHANGELOG.md" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="LICENSE.txt" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="icon.png" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="..\README.md" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>
