@@ -7,11 +7,18 @@ namespace VoidChest
     {
         internal const string PrefabPrefix = "VoidChest";
 
-        private static readonly AccessTools.FieldRef<InventoryGui, Container> CurrentContainerRef =
+        internal static readonly AccessTools.FieldRef<InventoryGui, Container> CurrentContainerRef =
             AccessTools.FieldRefAccess<InventoryGui, Container>("m_currentContainer");
 
         private static VirtualContainer _container;
         private static ItemDrop.ItemData _openItem;
+
+        internal static VirtualContainer CurrentContainer => _container;
+
+        internal static Container CurrentOpenedContainer(InventoryGui gui)
+        {
+            return gui != null ? CurrentContainerRef(gui) : null;
+        }
 
         internal static void Toggle(Player player)
         {
@@ -112,6 +119,8 @@ namespace VoidChest
             vc.m_width = size.cols;
             vc.m_height = size.rows;
 
+            vc.MaxWeight = GetMaxWeight(item);
+
             var inv = new Inventory(name, null, size.cols, size.rows);
 
             vc.SuppressSave = true;
@@ -140,14 +149,67 @@ namespace VoidChest
             switch (prefabName)
             {
                 case VoidChestItems.Magic:
-                    return (3, 6);
+                    return (VoidChestPlugin.CapacityMagicRows.Value, VoidChestPlugin.CapacityMagicCols.Value);
                 case VoidChestItems.Flame:
-                    return (3, 8);
+                    return (VoidChestPlugin.CapacityFlameRows.Value, VoidChestPlugin.CapacityFlameCols.Value);
                 case VoidChestItems.Crystal:
-                    return (4, 8);
+                    return (VoidChestPlugin.CapacityCrystalRows.Value, VoidChestPlugin.CapacityCrystalCols.Value);
                 default:
-                    return (2, 6);
+                    return (VoidChestPlugin.CapacityBlackMetalRows.Value, VoidChestPlugin.CapacityBlackMetalCols.Value);
             }
+        }
+
+        internal static float GetMaxWeight(ItemDrop.ItemData item)
+        {
+            var prefabName = item?.m_dropPrefab != null ? item.m_dropPrefab.name : "";
+
+            switch (prefabName)
+            {
+                case VoidChestItems.Magic:
+                    return VoidChestPlugin.WeightMagic.Value;
+                case VoidChestItems.Flame:
+                    return VoidChestPlugin.WeightFlame.Value;
+                case VoidChestItems.Crystal:
+                    return VoidChestPlugin.WeightCrystal.Value;
+                default:
+                    return VoidChestPlugin.WeightBlackMetal.Value;
+            }
+        }
+
+        /// <summary>宝箱等级：黑金属=1 / 魔能=2 / 烈焰=3 / 水晶=4。</summary>
+        internal static int GetTier(ItemDrop.ItemData item)
+        {
+            var prefabName = item?.m_dropPrefab != null ? item.m_dropPrefab.name : "";
+
+            switch (prefabName)
+            {
+                case VoidChestItems.Magic:
+                    return 2;
+                case VoidChestItems.Flame:
+                    return 3;
+                case VoidChestItems.Crystal:
+                    return 4;
+                default:
+                    return 1;
+            }
+        }
+
+        /// <summary>远程存储是否对当前装备的宝箱可用（受 AlwaysAvailable 与等级解锁影响）。</summary>
+        internal static bool CanUseRemote(Player player)
+        {
+            if (VoidChestPlugin.EnableRemoteStore == null || !VoidChestPlugin.EnableRemoteStore.Value)
+            {
+                return false;
+            }
+
+            if (VoidChestPlugin.RemoteStoreAlwaysAvailable != null &&
+                VoidChestPlugin.RemoteStoreAlwaysAvailable.Value)
+            {
+                return true;
+            }
+
+            var item = GetEquippedChest(player);
+            return item != null && GetTier(item) >= 2;
         }
 
         internal static void FlushActive(Player player)

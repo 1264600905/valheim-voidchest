@@ -6,29 +6,51 @@ namespace VoidChest
 {
     /// <summary>
     /// 虚空宝箱界面的自定义按钮注入（克隆原版"全部堆叠"按钮）。
+    /// 单按钮：未解锁远程时为"附近存储"，解锁后为"远程存入"。
     /// </summary>
     internal static class VoidChestUi
     {
-        private static GameObject _nearbyButton;
-        private static GameObject _remoteButton;
+        private static GameObject _storeButton;
 
         internal static void OnContainerShown(Container container)
         {
-            EnsureButtons();
+            EnsureButton();
 
-            bool isChest = container is VirtualContainer;
+            if (_storeButton == null)
+            {
+                return;
+            }
 
-            SetButtonActive(_nearbyButton, isChest &&
-                VoidChestPlugin.EnableNearbyStore != null && VoidChestPlugin.EnableNearbyStore.Value);
-            SetButtonActive(_remoteButton, isChest &&
-                VoidChestPlugin.EnableRemoteStore != null && VoidChestPlugin.EnableRemoteStore.Value);
+            if (!(container is VirtualContainer))
+            {
+                SetButtonActive(false);
+                return;
+            }
 
-            VLog.Debug($"界面按钮: nearby={IsActive(_nearbyButton)}, remote={IsActive(_remoteButton)}, container={(container != null ? container.GetType().Name : "null")}");
+            var player = Player.m_localPlayer;
+            bool remoteAvailable = VoidChestManager.CanUseRemote(player);
+            bool nearbyEnabled = VoidChestPlugin.EnableNearbyStore != null && VoidChestPlugin.EnableNearbyStore.Value;
+
+            if (!remoteAvailable && !nearbyEnabled)
+            {
+                SetButtonActive(false);
+                return;
+            }
+
+            var label = _storeButton.GetComponentInChildren<TMP_Text>();
+            if (label != null)
+            {
+                label.text = remoteAvailable ? "远程存入" : "附近存储";
+            }
+
+            SetButtonActive(true);
+
+            VLog.Debug($"界面按钮: 文本={(remoteAvailable ? "远程存入" : "附近存储")}, container={container.GetType().Name}");
         }
 
-        private static void EnsureButtons()
+        private static void EnsureButton()
         {
-            if (_nearbyButton != null && _remoteButton != null)
+            if (_storeButton != null)
             {
                 return;
             }
@@ -39,56 +61,37 @@ namespace VoidChest
                 return;
             }
 
-            if (_nearbyButton == null)
-            {
-                _nearbyButton = CreateButton(gui, "VoidChest_NearbyStoreButton", "附近存储", OnNearbyStoreClicked);
-            }
-
-            if (_remoteButton == null)
-            {
-                _remoteButton = CreateButton(gui, "VoidChest_RemoteStoreButton", "远程存入", OnRemoteStoreClicked);
-            }
-        }
-
-        private static GameObject CreateButton(InventoryGui gui, string name, string text,
-            UnityEngine.Events.UnityAction action)
-        {
             var parent = gui.m_stackAllButton.transform.parent;
             var clone = Object.Instantiate(gui.m_stackAllButton.gameObject, parent);
-            clone.name = name;
+            clone.name = "VoidChest_StoreButton";
 
             var button = clone.GetComponent<Button>();
             if (button != null)
             {
                 button.onClick = new Button.ButtonClickedEvent();
-                button.onClick.AddListener(action);
+                button.onClick.AddListener(OnStoreClicked);
             }
 
-            var label = clone.GetComponentInChildren<TMP_Text>();
-            if (label != null)
+            var text = clone.GetComponentInChildren<TMP_Text>();
+            if (text != null)
             {
-                label.text = text;
+                text.text = "附近存储";
             }
 
             clone.SetActive(false);
-            VLog.Info($"已注入\"{text}\"按钮。");
-            return clone;
+            _storeButton = clone;
+            VLog.Info("已注入虚空宝箱存储按钮。");
         }
 
-        private static void SetButtonActive(GameObject button, bool show)
+        private static void SetButtonActive(bool show)
         {
-            if (button != null && button.activeSelf != show)
+            if (_storeButton != null && _storeButton.activeSelf != show)
             {
-                button.SetActive(show);
+                _storeButton.SetActive(show);
             }
         }
 
-        private static bool IsActive(GameObject go)
-        {
-            return go != null && go.activeSelf;
-        }
-
-        private static void OnNearbyStoreClicked()
+        private static void OnStoreClicked()
         {
             var player = Player.m_localPlayer;
             if (player == null)
@@ -96,20 +99,16 @@ namespace VoidChest
                 return;
             }
 
-            VLog.Info("点击了\"附近存储\"按钮。");
-            VoidChestNearbyStore.Start(player);
-        }
-
-        private static void OnRemoteStoreClicked()
-        {
-            var player = Player.m_localPlayer;
-            if (player == null)
+            if (VoidChestManager.CanUseRemote(player))
             {
-                return;
+                VLog.Info("点击了\"远程存入\"按钮。");
+                VoidChestRemoteStore.Start(player);
             }
-
-            VLog.Info("点击了\"远程存入\"按钮。");
-            VoidChestRemoteStore.Start(player);
+            else
+            {
+                VLog.Info("点击了\"附近存储\"按钮。");
+                VoidChestNearbyStore.Start(player);
+            }
         }
     }
 }

@@ -16,6 +16,9 @@ namespace VoidChest
         /// <summary>加载存档数据期间禁止回写，避免 RemoveAll 触发回调覆盖存档。</summary>
         internal bool SuppressSave;
 
+        /// <summary>当前宝箱的重量上限（0 = 无限制），打开时按物品等级设置。</summary>
+        internal float MaxWeight;
+
         internal void InitVirtual()
         {
             SetInventory(new Inventory("Void Chest", null, 6, 2));

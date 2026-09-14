@@ -1,4 +1,5 @@
 using HarmonyLib;
+using UnityEngine;
 
 namespace VoidChest
 {
@@ -107,6 +108,97 @@ namespace VoidChest
         private static void Postfix(Container container)
         {
             VoidChestUi.OnContainerShown(container);
+        }
+    }
+
+    /// <summary>重量上限：拖拽/分堆对话框存入（带数量）时按剩余额度分堆，完全存不下则无反应。</summary>
+    [HarmonyPatch]
+    internal static class InventoryMoveItemToThisAmountPatch
+    {
+        private static System.Reflection.MethodBase TargetMethod()
+        {
+            return AccessTools.Method(typeof(Inventory), "MoveItemToThis",
+                new[] { typeof(Inventory), typeof(ItemDrop.ItemData), typeof(int), typeof(int), typeof(int) });
+        }
+
+        private static bool Prefix(Inventory __instance, ItemDrop.ItemData item, ref int amount)
+        {
+            if (item == null || !VoidChestWeight.IsVirtualInventory(__instance))
+            {
+                return true;
+            }
+
+            int allowed = VoidChestWeight.AllowedAmount(__instance, item, amount);
+            if (allowed <= 0)
+            {
+                return false; // 重量已满：无反应
+            }
+
+            amount = allowed; // 只能存入部分时自动分堆
+            return true;
+        }
+    }
+
+    /// <summary>重量上限：Shift 快速移动（整堆）时检查，超限改为部分移动。</summary>
+    [HarmonyPatch]
+    internal static class InventoryMoveItemToThisAllPatch
+    {
+        private static System.Reflection.MethodBase TargetMethod()
+        {
+            return AccessTools.Method(typeof(Inventory), "MoveItemToThis",
+                new[] { typeof(Inventory), typeof(ItemDrop.ItemData) });
+        }
+
+        private static bool Prefix(Inventory __instance, Inventory fromInventory, ItemDrop.ItemData item)
+        {
+            if (item == null || fromInventory == null || !VoidChestWeight.IsVirtualInventory(__instance))
+            {
+                return true;
+            }
+
+            int allowed = VoidChestWeight.AllowedAmount(__instance, item, item.m_stack);
+            if (allowed <= 0)
+            {
+                return false;
+            }
+
+            if (allowed >= item.m_stack)
+            {
+                return true; // 整堆可存，走原版逻辑
+            }
+
+            VoidChestWeight.MovePartialToContainer(__instance, fromInventory, item, allowed);
+            return false;
+        }
+    }
+
+    /// <summary>虚空宝箱重量显示为"当前/上限"（0 = 仅显示当前）。</summary>
+    [HarmonyPatch(typeof(InventoryGui), "UpdateContainerWeight")]
+    internal static class InventoryGuiContainerWeightPatch
+    {
+        private static void Postfix(InventoryGui __instance)
+        {
+            var vc = VoidChestManager.CurrentContainer;
+            if (vc == null || __instance == null)
+            {
+                return;
+            }
+
+            if (VoidChestManager.CurrentOpenedContainer(__instance) != vc)
+            {
+                return; // 当前打开的不是虚空宝箱，保持原版显示
+            }
+
+            var inv = vc.GetInventory();
+            if (inv == null)
+            {
+                return;
+            }
+
+            int current = Mathf.CeilToInt(inv.GetTotalWeight());
+            __instance.m_containerWeight.text = vc.MaxWeight > 0f
+                ? $"{current}/{Mathf.RoundToInt(vc.MaxWeight)}"
+                : current.ToString();
         }
     }
 }

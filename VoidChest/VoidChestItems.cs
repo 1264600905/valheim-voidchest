@@ -44,28 +44,36 @@ namespace VoidChest
 
             try
             {
-                Add(BlackMetal, "黑金属虚空宝箱", "forge", new[]
+                Add(BlackMetal, "黑金属虚空宝箱",
+                    "雾之国的工匠将一片虚空折进黑铁。匣中之物，唯持匣者得以相见。",
+                    "forge", new[]
                 {
                     new RequirementConfig("DragonTear", 5),
                     new RequirementConfig("FineWood", 10),
                     new RequirementConfig("BlackMetal", 20),
                 });
 
-                Add(Magic, "魔能虚空宝箱", "forge", new[]
+                Add(Magic, "魔能虚空宝箱",
+                    "铸入埃达精华后，匣中浮现幽光。诸神早已远去，唯有此匣应你呼唤。",
+                    "forge", new[]
                 {
                     new RequirementConfig(BlackMetal, 1),
                     new RequirementConfig("Eitr", 10),
                     new RequirementConfig("YagluthDrop", 2),
                 });
 
-                Add(Flame, "烈焰虚空宝箱", "blackforge", new[]
+                Add(Flame, "烈焰虚空宝箱",
+                    "火焰舔舐匣缘，却从不吞噬其中之物。青焰认可了你的意志。",
+                    "blackforge", new[]
                 {
                     new RequirementConfig(Magic, 1),
                     new RequirementConfig("Flametal", 10),
                     new RequirementConfig("FaderDrop", 2),
                 });
 
-                Add(Crystal, "水晶虚空宝箱", "blackforge", new[]
+                Add(Crystal, "水晶虚空宝箱",
+                    "霜与血的造物，诸界之外的门扉。它收纳你的过往，也收纳你尚未走完的路。",
+                    "blackforge", new[]
                 {
                     new RequirementConfig(Flame, 1),
                     new RequirementConfig("Gold", 10),
@@ -81,7 +89,7 @@ namespace VoidChest
             }
         }
 
-        private static void Add(string prefabName, string displayName, string station, RequirementConfig[] requirements)
+        private static void Add(string prefabName, string displayName, string description, string station, RequirementConfig[] requirements)
         {
             var reqText = new List<string>();
             foreach (var r in requirements)
@@ -108,7 +116,7 @@ namespace VoidChest
                 VLog.Error($"[{prefabName}] CustomItem.ItemPrefab 为空（克隆 {BasePrefab} 失败）");
             }
 
-            Sanitize(item, prefabName, displayName);
+            Sanitize(item, prefabName, displayName, description);
             ItemManager.Instance.AddItem(item);
 
             var recipe = item.Recipe;
@@ -122,7 +130,7 @@ namespace VoidChest
             }
         }
 
-        private static void Sanitize(CustomItem item, string prefabName, string displayName)
+        private static void Sanitize(CustomItem item, string prefabName, string displayName, string description)
         {
             var prefab = item.ItemPrefab;
             if (prefab == null)
@@ -172,7 +180,7 @@ namespace VoidChest
 
             // 直接写入中文名与描述（不走 Jotunn 的本地化 token 处理）
             shared.m_name = displayName;
-            shared.m_description = "一个随身携带的虚空宝箱。内容绑定在你的角色存档上，装备后按热键打开。";
+            shared.m_description = description;
 
             VLog.Info($"[{prefabName}] ItemDrop: name={shared.m_name}, type={shared.m_itemType}, weight={shared.m_weight}, icons={(shared.m_icons?.Length ?? 0)}");
 
