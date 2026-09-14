@@ -43,8 +43,10 @@ namespace VoidChest
 
             EnableNearbyStore = Config.Bind("NearbyStore", "Enabled", true,
                 "启用虚空宝箱界面上的\"附近存储\"按钮（不影响原版与 V+ 的堆叠按钮行为）。");
-            NearbyStoreRange = Config.Bind("NearbyStore", "Range", 10f,
-                "附近存储搜索半径（米）。");
+            NearbyStoreRange = Config.Bind("NearbyStore", "Range", 30f,
+                new ConfigDescription(
+                    "附近存储搜索半径（米）。范围 1-100，默认 30。",
+                    new AcceptableValueRange<float>(1f, 100f)));
             NearbyStoreCheckWard = Config.Bind("NearbyStore", "CheckWard", true,
                 "跳过无权限的领地（守护石）内的容器。");
             NearbyStoreIgnoreHotbar = Config.Bind("NearbyStore", "IgnoreHotbar", true,
@@ -57,6 +59,13 @@ namespace VoidChest
                 "不存储蜜酒/药水。");
             NearbyStoreTimeout = Config.Bind("NearbyStore", "TimeoutSeconds", 2f,
                 "单个容器等待 RPC 响应超时（秒），超时后跳过。");
+
+            // 旧默认值 10 -> 新默认值 30（仅当配置仍是旧默认值时迁移，可在 ConfigurationManager 中调整）
+            if (Mathf.Approximately(NearbyStoreRange.Value, 10f))
+            {
+                NearbyStoreRange.Value = 30f;
+                VLog.Info("附近存储范围已从旧默认 10 更新为 30（可在 ConfigurationManager 中调整）。");
+            }
 
             VLog.Info($"{PluginName} v{PluginVersion} 初始化中...");
 
