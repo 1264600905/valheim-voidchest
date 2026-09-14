@@ -90,13 +90,13 @@ namespace VoidChest
         }
     }
 
-    /// <summary>捕获容器堆叠 RPC 响应，推进附近存储队列。</summary>
+    /// <summary>捕获容器堆叠 RPC 响应（含授权结果），推进附近存储队列。</summary>
     [HarmonyPatch(typeof(Container), "RPC_StackResponse")]
     internal static class ContainerRpcStackResponsePatch
     {
-        private static void Postfix()
+        private static void Postfix(long uid, bool granted)
         {
-            VoidChestNearbyStore.OnStackResponse();
+            VoidChestNearbyStore.OnStackResponse(granted);
         }
     }
 

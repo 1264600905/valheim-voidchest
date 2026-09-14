@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using HarmonyLib;
 using UnityEngine;
 
 namespace VoidChest
@@ -15,12 +16,16 @@ namespace VoidChest
 
         private static readonly List<Container> _queue = new List<Container>();
         private static readonly HashSet<Container> _seen = new HashSet<Container>();
+        private static readonly AccessTools.FieldRef<Container, ZNetView> NViewRef =
+            AccessTools.FieldRefAccess<Container, ZNetView>("m_nview");
+
         private static bool _running;
         private static Container _current;
         private static float _waitTimer;
         private static int _beforeCount;
         private static int _processed;
         private static int _timedOut;
+        private static int _rejected;
 
         internal static void Start(Player player)
         {
@@ -48,6 +53,7 @@ namespace VoidChest
             _beforeCount = player.GetInventory().CountItems(null);
             _processed = 0;
             _timedOut = 0;
+            _rejected = 0;
             _running = true;
             FilterActive = true;
             _waitTimer = 0f;
@@ -80,7 +86,7 @@ namespace VoidChest
             }
         }
 
-        internal static void OnStackResponse()
+        internal static void OnStackResponse(bool granted)
         {
             if (!_running || _current == null)
             {
@@ -88,6 +94,13 @@ namespace VoidChest
             }
 
             _processed++;
+
+            if (!granted)
+            {
+                _rejected++;
+                VLog.Debug($"附近存储：{_current.gameObject.name} 被拒绝（使用中/无权限）。");
+            }
+
             _current = null;
         }
 
@@ -193,6 +206,11 @@ namespace VoidChest
                 message = "附近没有可用的箱子";
             }
 
+            if (_rejected > 0)
+            {
+                message += $"（{_rejected} 个使用中/被拒绝）";
+            }
+
             if (_timedOut > 0)
             {
                 message += $"（{_timedOut} 个超时）";
@@ -203,7 +221,7 @@ namespace VoidChest
                 VoidChestManager.Message(player, message);
             }
 
-            VLog.Info($"附近存储完成：移动 {moved} 件，容器 {_processed}，超时 {_timedOut}。");
+            VLog.Info($"附近存储完成：移动 {moved} 件，容器 {_processed}，拒绝 {_rejected}，超时 {_timedOut}。");
         }
 
         private static List<Container> FindContainers(Player player)
@@ -239,9 +257,9 @@ namespace VoidChest
                     continue;
                 }
 
-                if (container.IsInUse())
+                if (IsContainerBusy(container, out var busyReason))
                 {
-                    VLog.Debug($"附近存储：跳过使用中的容器 {container.gameObject.name}");
+                    VLog.Debug($"附近存储：跳过容器 {container.gameObject.name}（{busyReason}）");
                     continue;
                 }
 
@@ -261,6 +279,40 @@ namespace VoidChest
                     .CompareTo(Vector3.Distance(player.transform.position, b.transform.position)));
 
             return result;
+        }
+
+        /// <summary>
+        /// 判断容器是否被占用：
+        /// 1) 本地状态（单机/主机/自己使用中）；
+        /// 2) ZDO 的 InUse 字段（其他玩家正在打开该箱子，客户端同步值）。
+        /// 原版 RPC 授权（owner 端检查）仍作为最终兜底。
+        /// </summary>
+        private static bool IsContainerBusy(Container container, out string reason)
+        {
+            reason = null;
+
+            if (container.IsInUse())
+            {
+                reason = "本地使用中";
+                return true;
+            }
+
+            try
+            {
+                var nview = NViewRef(container);
+                var zdo = nview != null ? nview.GetZDO() : null;
+                if (zdo != null && zdo.GetInt(ZDOVars.s_inUse) == 1)
+                {
+                    reason = "其他玩家使用中(ZDO)";
+                    return true;
+                }
+            }
+            catch (Exception e)
+            {
+                VLog.Debug("ZDO 占用检查失败: " + e.Message);
+            }
+
+            return false;
         }
 
         private static bool ShouldSkip(ItemDrop.ItemData item)
