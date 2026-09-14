@@ -4,6 +4,9 @@
 *.dll
 *.pdb
 
+# Release packages
+dist/
+
 # IDE
 .vs/
 .vscode/
