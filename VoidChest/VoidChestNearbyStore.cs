@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using HarmonyLib;
 using UnityEngine;
 
@@ -26,6 +27,14 @@ namespace VoidChest
         private static int _processed;
         private static int _timedOut;
         private static int _rejected;
+
+        // 性能统计
+        private static float _startRealtime;
+        private static float _scanMs;
+        private static float _currentSentAt;
+        private static double _stackMs;
+        private static int _stackCalls;
+        private static double _maxContainerMs;
 
         internal static void Start(Player player)
         {
@@ -54,6 +63,11 @@ namespace VoidChest
             _processed = 0;
             _timedOut = 0;
             _rejected = 0;
+            _startRealtime = Time.realtimeSinceStartup;
+            _stackMs = 0;
+            _stackCalls = 0;
+            _maxContainerMs = 0;
+            VoidChestSave.ResetStats();
             _running = true;
             FilterActive = true;
             _waitTimer = 0f;
@@ -70,19 +84,46 @@ namespace VoidChest
                 return;
             }
 
-            // 由主循环驱动队列推进（避免单机同步 RPC 造成的深递归）
-            if (_current == null)
-            {
-                SendNext();
-                return;
-            }
+            // 主循环驱动队列推进；单机/主机同步 RPC 时在时间预算内连续处理多个容器
+            float budgetEnd = Time.realtimeSinceStartup + 0.004f;
 
-            _waitTimer += Time.deltaTime;
-            if (_waitTimer > Timeout())
+            while (true)
             {
-                VLog.Warn($"附近存储：{_current.gameObject.name} 响应超时，跳过。");
-                _timedOut++;
-                _current = null;
+                if (_current == null)
+                {
+                    if (_queue.Count == 0)
+                    {
+                        Finish();
+                        return;
+                    }
+
+                    SendNext();
+
+                    if (_current != null)
+                    {
+                        // 等待网络响应
+                        break;
+                    }
+
+                    if (Time.realtimeSinceStartup >= budgetEnd)
+                    {
+                        // 本帧预算用尽，下一帧继续
+                        break;
+                    }
+
+                    continue;
+                }
+
+                _waitTimer += Time.deltaTime;
+                if (_waitTimer > Timeout())
+                {
+                    VLog.Warn($"附近存储：{_current.gameObject.name} 响应超时，跳过。");
+                    _timedOut++;
+                    _current = null;
+                    continue;
+                }
+
+                break;
             }
         }
 
@@ -91,6 +132,12 @@ namespace VoidChest
             if (!_running || _current == null)
             {
                 return;
+            }
+
+            double ms = (Time.realtimeSinceStartup - _currentSentAt) * 1000.0;
+            if (ms > _maxContainerMs)
+            {
+                _maxContainerMs = ms;
             }
 
             _processed++;
@@ -107,6 +154,7 @@ namespace VoidChest
         /// <summary>替换原版 Inventory.StackAll 的过滤版本（仅在附近存储流程中生效）。</summary>
         internal static int FilteredStackAll(Inventory container, Inventory from, bool message)
         {
+            var sw = Stopwatch.StartNew();
             var items = new List<ItemDrop.ItemData>(from.GetAllItems());
             int moved = 0;
             var player = Player.m_localPlayer;
@@ -144,10 +192,11 @@ namespace VoidChest
                 }
             }
 
-            if (VLog.DebugEnabled)
-            {
-                VLog.Debug($"FilteredStackAll: 容器={container.GetName()}，移动 {moved} 堆叠。");
-            }
+            sw.Stop();
+            _stackCalls++;
+            _stackMs += sw.Elapsed.TotalMilliseconds;
+
+            VLog.Debug($"FilteredStackAll: 容器={container.GetName()}，移动 {moved} 堆叠，耗时 {sw.Elapsed.TotalMilliseconds:F2}ms。");
 
             return moved;
         }
@@ -168,6 +217,7 @@ namespace VoidChest
             _current = _queue[0];
             _queue.RemoveAt(0);
             _waitTimer = 0f;
+            _currentSentAt = Time.realtimeSinceStartup;
 
             try
             {
@@ -221,11 +271,14 @@ namespace VoidChest
                 VoidChestManager.Message(player, message);
             }
 
+            double totalMs = (Time.realtimeSinceStartup - _startRealtime) * 1000.0;
             VLog.Info($"附近存储完成：移动 {moved} 件，容器 {_processed}，拒绝 {_rejected}，超时 {_timedOut}。");
+            VLog.Info($"附近存储性能：总耗时 {totalMs:F0}ms | 扫描 {_scanMs:F1}ms | 容器 {_processed} | 堆叠 {_stackCalls} 次 {_stackMs:F1}ms | 最长响应 {_maxContainerMs:F0}ms | 存档回写 {VoidChestSave.SaveCount} 次 {VoidChestSave.SaveTotalMs:F1}ms | 均值 {totalMs / Math.Max(1, _processed):F0}ms/容器");
         }
 
         private static List<Container> FindContainers(Player player)
         {
+            var sw = Stopwatch.StartNew();
             _seen.Clear();
             var result = new List<Container>();
 
@@ -277,6 +330,9 @@ namespace VoidChest
             result.Sort((a, b) =>
                 Vector3.Distance(player.transform.position, a.transform.position)
                     .CompareTo(Vector3.Distance(player.transform.position, b.transform.position)));
+
+            sw.Stop();
+            _scanMs = (float)sw.Elapsed.TotalMilliseconds;
 
             return result;
         }

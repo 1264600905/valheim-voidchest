@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using UnityEngine;
 
 namespace VoidChest
@@ -11,6 +12,16 @@ namespace VoidChest
     {
         internal const string CustomKey = "liu_VoidChest";
         private const int CurrentVersion = 1;
+
+        // 性能统计
+        internal static int SaveCount;
+        internal static double SaveTotalMs;
+
+        internal static void ResetStats()
+        {
+            SaveCount = 0;
+            SaveTotalMs = 0;
+        }
 
         [Serializable]
         private class Blob
@@ -60,10 +71,12 @@ namespace VoidChest
                     return;
                 }
 
+                var sw = Stopwatch.StartNew();
                 var bytes = Convert.FromBase64String(blob.data);
                 inv.Load(new ZPackage(bytes));
+                sw.Stop();
 
-                VLog.Info($"LoadInto: 存档 JSON {json.Length} 字符，Base64 {blob.data.Length} 字符，加载 {inv.NrOfItems()} 件物品。");
+                VLog.Info($"LoadInto: 存档 JSON {json.Length} 字符，Base64 {blob.data.Length} 字符，加载 {inv.NrOfItems()} 件物品，耗时 {sw.Elapsed.TotalMilliseconds:F2}ms。");
 
                 if (VLog.DebugEnabled)
                 {
@@ -88,6 +101,8 @@ namespace VoidChest
                     return;
                 }
 
+                var sw = Stopwatch.StartNew();
+
                 var pkg = new ZPackage();
                 inv.Save(pkg);
 
@@ -104,7 +119,11 @@ namespace VoidChest
 
                 player.m_customData[CustomKey] = JsonUtility.ToJson(blob);
 
-                VLog.Debug($"SaveFrom: 保存 {inv.NrOfItems()} 件物品，Base64 {blob.data.Length} 字符。");
+                sw.Stop();
+                SaveCount++;
+                SaveTotalMs += sw.Elapsed.TotalMilliseconds;
+
+                VLog.Debug($"SaveFrom: 保存 {inv.NrOfItems()} 件物品，Base64 {blob.data.Length} 字符，耗时 {sw.Elapsed.TotalMilliseconds:F2}ms（累计 {SaveCount} 次 {SaveTotalMs:F1}ms）。");
             }
             catch (Exception e)
             {
