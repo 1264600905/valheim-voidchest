@@ -1,0 +1,10 @@
+{
+  "name": "VoidChest",
+  "version_number": "0.4.0",
+  "website_url": "https://github.com/1264600905/valheim-voidchest",
+  "description": "随身虚空宝箱：装备后打开角色绑定的个人容器，支持四级升级、容量/重量配置、附近快速存储与守护石远程仓库。Void Chest: a character-bound portable container with nearby storage and guard stone remote deposit.",
+  "dependencies": [
+    "denikson-BepInExPack_Valheim-5.4.2350",
+    "ValheimModding-Jotunn-2.29.2"
+  ]
+}

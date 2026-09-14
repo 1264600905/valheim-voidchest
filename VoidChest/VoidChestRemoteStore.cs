@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using HarmonyLib;
@@ -89,20 +89,20 @@ namespace VoidChest
 
             if (_phase != Phase.Idle)
             {
-                VoidChestManager.Message(player, "远程存入正在进行中...");
+                VoidChestManager.Message(player, VoidChestLocalization.L(VoidChestLocalization.RemoteInProgress));
                 VLog.Info("远程存入：已有流程进行中，忽略本次点击。");
                 return;
             }
 
             if (VoidChestNearbyStore.IsRunning)
             {
-                VoidChestManager.Message(player, "附近存储正在进行中，请稍后再试。");
+                VoidChestManager.Message(player, VoidChestLocalization.L(VoidChestLocalization.NearbyInProgress));
                 return;
             }
 
             if (ZNet.instance == null || !ZNet.instance.IsServer())
             {
-                VoidChestManager.Message(player, "远程存入仅支持单机/主机模式");
+                VoidChestManager.Message(player, VoidChestLocalization.L(VoidChestLocalization.RemoteHostOnly));
                 VLog.Info("远程存入：非主机模式，已取消。");
                 return;
             }
@@ -147,7 +147,7 @@ namespace VoidChest
             var guardPrefabs = CollectPrefabs(go => go.GetComponent<PrivateArea>() != null);
             if (guardPrefabs.Count == 0)
             {
-                VoidChestManager.Message(player, "世界中未找到守护石。");
+                VoidChestManager.Message(player, VoidChestLocalization.L(VoidChestLocalization.RemoteNoGuardstone));
                 VLog.Info("远程存入：未找到守护石 prefab。");
                 _phase = Phase.Idle;
                 return;
@@ -320,7 +320,7 @@ namespace VoidChest
 
                 if (_guards.Count == 0)
                 {
-                    Finish("没有找到你有权限的守护石");
+                    Finish(VoidChestLocalization.L(VoidChestLocalization.RemoteNoAccess));
                     return;
                 }
 
@@ -416,7 +416,7 @@ namespace VoidChest
                 {
                     if (_guards.Count == 0)
                     {
-                        Finish("没有找到你有权限的守护石");
+                        Finish(VoidChestLocalization.L(VoidChestLocalization.RemoteNoAccess));
                         return;
                     }
 
@@ -683,16 +683,16 @@ namespace VoidChest
             }
             else if (_moved > 0)
             {
-                message = $"已远程存入 {_moved} 件物品到家的箱子（{_processed} 个箱子）";
+                message = VoidChestLocalization.L(VoidChestLocalization.RemoteStored, _moved, _processed);
             }
             else
             {
-                message = $"没有可远程存入的物品（扫描 {_processed} 个箱子）";
+                message = VoidChestLocalization.L(VoidChestLocalization.RemoteNothing, _processed);
             }
 
             if (_skipped > 0)
             {
-                message += $"（跳过 {_skipped} 个使用中/无效箱子）";
+                message += VoidChestLocalization.L(VoidChestLocalization.RemoteSkipped, _skipped);
             }
 
             if (_player != null)

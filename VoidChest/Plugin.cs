@@ -139,6 +139,7 @@ namespace VoidChest
             }
 
             VPlusGate.Install(_harmony);
+            VoidChestLocalization.Register();
             VoidChestItems.Register();
 
             VLog.Info($"{PluginName} v{PluginVersion} 初始化完成。热键={OpenHotkey.Value}, Debug={DebugLog.Value}, 附近存储={EnableNearbyStore.Value}, 远程存入={EnableRemoteStore.Value}(Always={RemoteStoreAlwaysAvailable.Value})");

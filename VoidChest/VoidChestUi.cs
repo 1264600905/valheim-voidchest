@@ -40,7 +40,9 @@ namespace VoidChest
             var label = _storeButton.GetComponentInChildren<TMP_Text>();
             if (label != null)
             {
-                label.text = remoteAvailable ? "远程存入" : "附近存储";
+                label.text = remoteAvailable
+                    ? VoidChestLocalization.L(VoidChestLocalization.StoreRemote)
+                    : VoidChestLocalization.L(VoidChestLocalization.StoreNearby);
             }
 
             SetButtonActive(true);
@@ -75,7 +77,7 @@ namespace VoidChest
             var text = clone.GetComponentInChildren<TMP_Text>();
             if (text != null)
             {
-                text.text = "附近存储";
+                text.text = VoidChestLocalization.L(VoidChestLocalization.StoreNearby);
             }
 
             clone.SetActive(false);

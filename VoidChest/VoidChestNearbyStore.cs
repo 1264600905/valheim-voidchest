@@ -39,14 +39,14 @@ namespace VoidChest
 
             if (_running || VoidChestRemoteStore.IsRunning)
             {
-                VoidChestManager.Message(player, "已有存储操作正在进行中...");
+                VoidChestManager.Message(player, VoidChestLocalization.L(VoidChestLocalization.NearbyInProgress));
                 return;
             }
 
             var containers = FindContainers(player);
             if (containers.Count == 0)
             {
-                VoidChestManager.Message(player, "附近没有可存储的箱子。");
+                VoidChestManager.Message(player, VoidChestLocalization.L(VoidChestLocalization.NearbyNone));
                 VLog.Info("附近存储：未找到可用容器。");
                 return;
             }
@@ -182,25 +182,25 @@ namespace VoidChest
             string message;
             if (moved > 0)
             {
-                message = $"已存入 {moved} 件物品到 {_processed} 个箱子";
+                message = VoidChestLocalization.L(VoidChestLocalization.NearbyStored, moved, _processed);
             }
             else if (_processed > 0)
             {
-                message = $"没有可存入的物品（扫描 {_processed} 个箱子）";
+                message = VoidChestLocalization.L(VoidChestLocalization.NearbyNothing, _processed);
             }
             else
             {
-                message = "附近没有可用的箱子";
+                message = VoidChestLocalization.L(VoidChestLocalization.NearbyNone);
             }
 
             if (_rejected > 0)
             {
-                message += $"（{_rejected} 个使用中/被拒绝）";
+                message += VoidChestLocalization.L(VoidChestLocalization.NearbyRejected, _rejected);
             }
 
             if (_timedOut > 0)
             {
-                message += $"（{_timedOut} 个超时）";
+                message += VoidChestLocalization.L(VoidChestLocalization.NearbyTimeout, _timedOut);
             }
 
             if (player != null)

@@ -44,8 +44,7 @@ namespace VoidChest
 
             try
             {
-                Add(BlackMetal, "黑金属虚空宝箱",
-                    "雾之国的工匠将一片虚空折进黑铁。匣中之物，唯持匣者得以相见。",
+                Add(BlackMetal, VoidChestLocalization.ItemBlackMetal, VoidChestLocalization.ItemBlackMetalDesc,
                     "forge", new[]
                 {
                     new RequirementConfig("DragonTear", 5),
@@ -53,8 +52,7 @@ namespace VoidChest
                     new RequirementConfig("BlackMetal", 20),
                 });
 
-                Add(Magic, "魔能虚空宝箱",
-                    "铸入埃达精华后，匣中浮现幽光。诸神早已远去，唯有此匣应你呼唤。",
+                Add(Magic, VoidChestLocalization.ItemMagic, VoidChestLocalization.ItemMagicDesc,
                     "forge", new[]
                 {
                     new RequirementConfig(BlackMetal, 1),
@@ -62,8 +60,7 @@ namespace VoidChest
                     new RequirementConfig("YagluthDrop", 2),
                 });
 
-                Add(Flame, "烈焰虚空宝箱",
-                    "火焰舔舐匣缘，却从不吞噬其中之物。青焰认可了你的意志。",
+                Add(Flame, VoidChestLocalization.ItemFlame, VoidChestLocalization.ItemFlameDesc,
                     "blackforge", new[]
                 {
                     new RequirementConfig(Magic, 1),
@@ -71,8 +68,7 @@ namespace VoidChest
                     new RequirementConfig("FaderDrop", 2),
                 });
 
-                Add(Crystal, "水晶虚空宝箱",
-                    "霜与血的造物，诸界之外的门扉。它收纳你的过往，也收纳你尚未走完的路。",
+                Add(Crystal, VoidChestLocalization.ItemCrystal, VoidChestLocalization.ItemCrystalDesc,
                     "blackforge", new[]
                 {
                     new RequirementConfig(Flame, 1),
