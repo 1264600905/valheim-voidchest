@@ -12,6 +12,10 @@ namespace VoidChest
         private static MethodInfo _getEquipped;
         private static bool _warned;
 
+        private static bool _slotLookupInitialized;
+        private static MethodInfo _getItemSlot;
+        private static bool _slotLookupWarned;
+
         private static MethodInfo GetMethod()
         {
             if (_initialized)
@@ -40,6 +44,61 @@ namespace VoidChest
             }
 
             return _getEquipped;
+        }
+
+        private static MethodInfo GetItemSlotMethod()
+        {
+            if (_slotLookupInitialized)
+            {
+                return _getItemSlot;
+            }
+
+            _slotLookupInitialized = true;
+
+            var type = AccessTools.TypeByName("ExtraSlots.Slots");
+            if (type == null)
+            {
+                return null;
+            }
+
+            _getItemSlot = AccessTools.Method(type, "GetItemSlot", new[] { typeof(ItemDrop.ItemData) });
+
+            if (_getItemSlot == null)
+            {
+                VLog.Warn("未找到 ExtraSlots.Slots.GetItemSlot，专用槽位物品过滤降级。");
+            }
+
+            return _getItemSlot;
+        }
+
+        /// <summary>物品是否位于 ExtraSlots 的任意专用槽位（快捷/弹药/食物/杂项/额外装备/自定义）。</summary>
+        internal static bool IsInExtraSlot(ItemDrop.ItemData item)
+        {
+            if (item == null)
+            {
+                return false;
+            }
+
+            var method = GetItemSlotMethod();
+            if (method == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                return method.Invoke(null, new object[] { item }) != null;
+            }
+            catch (Exception e)
+            {
+                if (!_slotLookupWarned)
+                {
+                    _slotLookupWarned = true;
+                    VLog.Warn("ExtraSlots.GetItemSlot 调用失败，专用槽位过滤降级: " + e.Message);
+                }
+
+                return false;
+            }
         }
 
         internal static List<ItemDrop.ItemData> GetEquippedItems(Humanoid humanoid)

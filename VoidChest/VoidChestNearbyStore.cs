@@ -19,8 +19,6 @@ namespace VoidChest
         private static readonly AccessTools.FieldRef<Container, ZNetView> NViewRef =
             AccessTools.FieldRefAccess<Container, ZNetView>("m_nview");
 
-        private static readonly HashSet<ItemDrop.ItemData> _extraSlotItems = new HashSet<ItemDrop.ItemData>();
-
         private static bool _running;
         private static Container _current;
         private static float _waitTimer;
@@ -56,19 +54,6 @@ namespace VoidChest
             _processed = 0;
             _timedOut = 0;
             _rejected = 0;
-
-            _extraSlotItems.Clear();
-            var extraSlots = ExtraSlotsCompat.GetEquippedItems(player);
-            if (extraSlots != null)
-            {
-                foreach (var it in extraSlots)
-                {
-                    if (it != null)
-                    {
-                        _extraSlotItems.Add(it);
-                    }
-                }
-            }
             _running = true;
             FilterActive = true;
             _waitTimer = 0f;
@@ -342,12 +327,12 @@ namespace VoidChest
                 return true;
             }
 
-            // 2) ExtraSlots 额外装备栏中的装备
-            if (_extraSlotItems.Contains(item))
+            // 2) ExtraSlots 任意专用槽位（快捷/弹药/食物/杂项/额外装备/自定义）
+            if (ExtraSlotsCompat.IsInExtraSlot(item))
             {
                 if (VLog.DebugEnabled)
                 {
-                    VLog.Debug($"附近存储：跳过额外装备栏物品 {item.m_shared.m_name}");
+                    VLog.Debug($"附近存储：跳过额外槽位物品 {item.m_shared.m_name}");
                 }
                 return true;
             }
