@@ -55,7 +55,27 @@ Write-Host "==> 压缩..."
 if (Test-Path -LiteralPath $zipPath) {
     Remove-Item -LiteralPath $zipPath -Force
 }
-Compress-Archive -Path (Join-Path $stagingDir "*") -DestinationPath $zipPath
+
+# 注意：PowerShell 5.1 的 Compress-Archive 会写入反斜杠路径（Thunderstore 校验会失败），
+# 这里手动构建 zip，显式使用正斜杠条目名。
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+$zip = [System.IO.Compression.ZipFile]::Open($zipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+try {
+    Get-ChildItem -LiteralPath $stagingDir -Recurse -File | ForEach-Object {
+        $relative = $_.FullName.Substring($stagingDir.Length + 1).Replace('\', '/')
+        $entry = $zip.CreateEntry($relative, [System.IO.Compression.CompressionLevel]::Optimal)
+        $entryStream = $entry.Open()
+        try {
+            $fileStream = [System.IO.File]::OpenRead($_.FullName)
+            try { $fileStream.CopyTo($entryStream) } finally { $fileStream.Dispose() }
+        } finally { $entryStream.Dispose() }
+    }
+} finally {
+    $zip.Dispose()
+}
+
 Remove-Item -LiteralPath $stagingDir -Recurse -Force
 
 Write-Host "==> 完成: $zipPath"
