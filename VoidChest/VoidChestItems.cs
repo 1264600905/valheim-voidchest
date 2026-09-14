@@ -179,11 +179,14 @@ namespace VoidChest
                 return src;
             }
 
+            // 图标可能来自 SpriteAtlas：必须按 textureRect 读取子区域
             var rect = src.textureRect;
-            int w = Mathf.Max(1, Mathf.RoundToInt(rect.width));
-            int h = Mathf.Max(1, Mathf.RoundToInt(rect.height));
+            int rw = Mathf.Max(1, Mathf.RoundToInt(rect.width));
+            int rh = Mathf.Max(1, Mathf.RoundToInt(rect.height));
+            int tw = Mathf.Max(1, srcTex.width);
+            int th = Mathf.Max(1, srcTex.height);
 
-            var rt = RenderTexture.GetTemporary(w, h, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+            var rt = RenderTexture.GetTemporary(tw, th, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
             var prev = RenderTexture.active;
 
             try
@@ -191,8 +194,8 @@ namespace VoidChest
                 Graphics.Blit(srcTex, rt);
                 RenderTexture.active = rt;
 
-                var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
-                tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+                var tex = new Texture2D(rw, rh, TextureFormat.RGBA32, false);
+                tex.ReadPixels(new Rect(rect.x, rect.y, rw, rh), 0, 0);
                 tex.Apply();
 
                 var px = tex.GetPixels32();
@@ -204,20 +207,22 @@ namespace VoidChest
                         continue;
                     }
 
-                    float lum = (p.r * 0.299f + p.g * 0.587f + p.b * 0.114f) / 255f;
-                    lum = Mathf.Clamp01(0.35f + 0.65f * lum);
+                    // 用原像素亮度保留明暗层次，替换为目标品质色
+                    float v = Mathf.Max(p.r, Mathf.Max(p.g, p.b)) / 255f;
+                    v = Mathf.Clamp01(0.2f + 0.8f * v);
 
                     px[i] = new Color32(
-                        (byte)(tint.r * 255f * lum),
-                        (byte)(tint.g * 255f * lum),
-                        (byte)(tint.b * 255f * lum),
+                        (byte)(tint.r * 255f * v),
+                        (byte)(tint.g * 255f * v),
+                        (byte)(tint.b * 255f * v),
                         p.a);
                 }
 
                 tex.SetPixels32(px);
                 tex.Apply();
 
-                return Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f), src.pixelsPerUnit);
+                return Sprite.Create(tex, new Rect(0, 0, rw, rh), new Vector2(0.5f, 0.5f),
+                    src.pixelsPerUnit, 0, SpriteMeshType.FullRect);
             }
             finally
             {

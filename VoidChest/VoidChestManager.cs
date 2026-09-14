@@ -94,8 +94,17 @@ namespace VoidChest
             vc.m_height = size.rows;
 
             var inv = new Inventory(name, null, size.cols, size.rows);
-            vc.SetInventory(inv);
-            VoidChestSave.LoadInto(inv, player);
+
+            vc.SuppressSave = true;
+            try
+            {
+                vc.SetInventory(inv);
+                VoidChestSave.LoadInto(inv, player);
+            }
+            finally
+            {
+                vc.SuppressSave = false;
+            }
 
             _openItem = item;
             InventoryGui.instance.Show(vc);

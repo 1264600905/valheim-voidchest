@@ -13,6 +13,9 @@ namespace VoidChest
         private static readonly AccessTools.FieldRef<Container, Inventory> InventoryRef =
             AccessTools.FieldRefAccess<Container, Inventory>("m_inventory");
 
+        /// <summary>加载存档数据期间禁止回写，避免 RemoveAll 触发回调覆盖存档。</summary>
+        internal bool SuppressSave;
+
         internal void InitVirtual()
         {
             SetInventory(new Inventory("Void Chest", null, 6, 2));
@@ -36,6 +39,11 @@ namespace VoidChest
 
         private void OnInventoryChanged()
         {
+            if (SuppressSave)
+            {
+                return;
+            }
+
             var player = Player.m_localPlayer;
             var inv = GetInventory();
             if (player != null && inv != null)

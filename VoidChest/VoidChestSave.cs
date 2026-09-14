@@ -27,14 +27,13 @@ namespace VoidChest
                     return;
                 }
 
+                // 先取出存档文本，避免清空库存触发的回调覆盖存档
+                string json = null;
+                player?.m_customData?.TryGetValue(CustomKey, out json);
+
                 inv.RemoveAll();
 
-                if (player?.m_customData == null)
-                {
-                    return;
-                }
-
-                if (!player.m_customData.TryGetValue(CustomKey, out var json))
+                if (string.IsNullOrEmpty(json))
                 {
                     return;
                 }
