@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
 
@@ -15,9 +12,6 @@ namespace VoidChest
 
         private static VirtualContainer _container;
         private static ItemDrop.ItemData _openItem;
-
-        private static bool _extraSlotsInitialized;
-        private static MethodInfo _extraSlotsGetEquipped;
 
         internal static void Toggle(Player player)
         {
@@ -71,29 +65,16 @@ namespace VoidChest
                 }
             }
 
-            InitExtraSlots();
-
-            if (_extraSlotsGetEquipped != null)
+            var extraSlots = ExtraSlotsCompat.GetEquippedItems(player);
+            if (extraSlots != null)
             {
-                try
+                foreach (var item in extraSlots)
                 {
-                    var list = _extraSlotsGetEquipped.Invoke(null, new object[] { player }) as List<ItemDrop.ItemData>;
-                    if (list != null)
+                    if (IsVoidChestItem(item))
                     {
-                        foreach (var item in list)
-                        {
-                            if (IsVoidChestItem(item))
-                            {
-                                VLog.Debug($"ExtraSlots 额外槽检测到虚空宝箱: prefab={item.m_dropPrefab.name}, name={item.m_shared.m_name}");
-                                return item;
-                            }
-                        }
+                        VLog.Debug($"ExtraSlots 额外槽检测到虚空宝箱: prefab={item.m_dropPrefab.name}, name={item.m_shared.m_name}");
+                        return item;
                     }
-                }
-                catch (Exception e)
-                {
-                    VLog.Warn("ExtraSlots 装备检测失败，降级为原版槽检测: " + e.Message);
-                    _extraSlotsGetEquipped = null;
                 }
             }
 
@@ -103,34 +84,6 @@ namespace VoidChest
         private static bool IsVoidChestItem(ItemDrop.ItemData item)
         {
             return item?.m_dropPrefab != null && item.m_dropPrefab.name.StartsWith(PrefabPrefix);
-        }
-
-        private static void InitExtraSlots()
-        {
-            if (_extraSlotsInitialized)
-            {
-                return;
-            }
-
-            _extraSlotsInitialized = true;
-
-            var type = AccessTools.TypeByName("ExtraSlots.ExtraUtilitySlots");
-            if (type == null)
-            {
-                VLog.Debug("未检测到 ExtraSlots，仅使用原版装备槽。");
-                return;
-            }
-
-            _extraSlotsGetEquipped = AccessTools.Method(type, "GetEquippedItems", new[] { typeof(Humanoid) });
-
-            if (_extraSlotsGetEquipped != null)
-            {
-                VLog.Info("检测到 ExtraSlots，额外 Utility 槽参与装备检测。");
-            }
-            else
-            {
-                VLog.Warn("检测到 ExtraSlots 但未找到 ExtraUtilitySlots.GetEquippedItems，跳过额外槽检测。");
-            }
         }
 
         private static VirtualContainer EnsureContainer(Player player)

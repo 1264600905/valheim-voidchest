@@ -19,6 +19,8 @@ namespace VoidChest
         private static readonly AccessTools.FieldRef<Container, ZNetView> NViewRef =
             AccessTools.FieldRefAccess<Container, ZNetView>("m_nview");
 
+        private static readonly HashSet<ItemDrop.ItemData> _extraSlotItems = new HashSet<ItemDrop.ItemData>();
+
         private static bool _running;
         private static Container _current;
         private static float _waitTimer;
@@ -54,6 +56,19 @@ namespace VoidChest
             _processed = 0;
             _timedOut = 0;
             _rejected = 0;
+
+            _extraSlotItems.Clear();
+            var extraSlots = ExtraSlotsCompat.GetEquippedItems(player);
+            if (extraSlots != null)
+            {
+                foreach (var it in extraSlots)
+                {
+                    if (it != null)
+                    {
+                        _extraSlotItems.Add(it);
+                    }
+                }
+            }
             _running = true;
             FilterActive = true;
             _waitTimer = 0f;
@@ -317,16 +332,32 @@ namespace VoidChest
 
         private static bool ShouldSkip(ItemDrop.ItemData item)
         {
+            // 1) 物品栏第一排（快捷栏，一般放装备）
+            if (VoidChestPlugin.NearbyStoreIgnoreHotbar.Value && item.m_gridPos.y == 0)
+            {
+                if (VLog.DebugEnabled)
+                {
+                    VLog.Debug($"附近存储：跳过快捷栏物品 {item.m_shared.m_name}");
+                }
+                return true;
+            }
+
+            // 2) ExtraSlots 额外装备栏中的装备
+            if (_extraSlotItems.Contains(item))
+            {
+                if (VLog.DebugEnabled)
+                {
+                    VLog.Debug($"附近存储：跳过额外装备栏物品 {item.m_shared.m_name}");
+                }
+                return true;
+            }
+
+            // 3) 可选过滤：弹药 / 食物 / 蜜酒
             var shared = item.m_shared;
             var type = shared.m_itemType;
 
             if (VoidChestPlugin.NearbyStoreIgnoreAmmo.Value &&
                 (type == ItemDrop.ItemData.ItemType.Ammo || type == ItemDrop.ItemData.ItemType.AmmoNonEquipable))
-            {
-                return true;
-            }
-
-            if (VoidChestPlugin.NearbyStoreIgnoreEquipable.Value && IsEquipable(type))
             {
                 return true;
             }
@@ -346,31 +377,6 @@ namespace VoidChest
             }
 
             return false;
-        }
-
-        private static bool IsEquipable(ItemDrop.ItemData.ItemType type)
-        {
-            switch (type)
-            {
-                case ItemDrop.ItemData.ItemType.OneHandedWeapon:
-                case ItemDrop.ItemData.ItemType.Bow:
-                case ItemDrop.ItemData.ItemType.Shield:
-                case ItemDrop.ItemData.ItemType.Helmet:
-                case ItemDrop.ItemData.ItemType.Chest:
-                case ItemDrop.ItemData.ItemType.Legs:
-                case ItemDrop.ItemData.ItemType.Hands:
-                case ItemDrop.ItemData.ItemType.TwoHandedWeapon:
-                case ItemDrop.ItemData.ItemType.Torch:
-                case ItemDrop.ItemData.ItemType.Shoulder:
-                case ItemDrop.ItemData.ItemType.Utility:
-                case ItemDrop.ItemData.ItemType.Tool:
-                case ItemDrop.ItemData.ItemType.Attach_Atgeir:
-                case ItemDrop.ItemData.ItemType.TwoHandedWeaponLeft:
-                case ItemDrop.ItemData.ItemType.Trinket:
-                    return true;
-                default:
-                    return false;
-            }
         }
 
         private static float Timeout()

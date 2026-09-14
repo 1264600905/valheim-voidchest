@@ -23,7 +23,7 @@ namespace VoidChest
         internal static ConfigEntry<bool> EnableNearbyStore;
         internal static ConfigEntry<float> NearbyStoreRange;
         internal static ConfigEntry<bool> NearbyStoreCheckWard;
-        internal static ConfigEntry<bool> NearbyStoreIgnoreEquipable;
+        internal static ConfigEntry<bool> NearbyStoreIgnoreHotbar;
         internal static ConfigEntry<bool> NearbyStoreIgnoreFood;
         internal static ConfigEntry<bool> NearbyStoreIgnoreAmmo;
         internal static ConfigEntry<bool> NearbyStoreIgnoreMead;
@@ -47,8 +47,8 @@ namespace VoidChest
                 "附近存储搜索半径（米）。");
             NearbyStoreCheckWard = Config.Bind("NearbyStore", "CheckWard", true,
                 "跳过无权限的领地（守护石）内的容器。");
-            NearbyStoreIgnoreEquipable = Config.Bind("NearbyStore", "IgnoreEquipable", true,
-                "不存储可装备物品（武器/护甲/工具等）。");
+            NearbyStoreIgnoreHotbar = Config.Bind("NearbyStore", "IgnoreHotbar", true,
+                "不存储物品栏第一排（快捷栏）的物品（通常放置装备）。");
             NearbyStoreIgnoreFood = Config.Bind("NearbyStore", "IgnoreFood", false,
                 "不存储食物。");
             NearbyStoreIgnoreAmmo = Config.Bind("NearbyStore", "IgnoreAmmo", false,
