@@ -8,7 +8,8 @@ namespace VoidChest
 {
     /// <summary>
     /// P2 守护石远程仓库：扫描玩家有权限的守护石领地范围内的所有箱子，远程堆入背包物品。
-    /// 仅在主机/单机模式执行（服务端 ZDO 权威）；专用服务器需服务端安装本 mod。
+    /// 必须在服务端（ZDO 权威）执行：单机/主机直接执行；联机客户端通过 VoidChestRemoteNet
+    /// 发送背包快照，由服务端处理后回传实际移动差异（需服务端安装本 mod）。
     /// 优先使用反射全量快照（一次遍历所有 ZDO），失败时降级为按 prefab 名分帧扫描。
     ///
     /// 重要：全程只保存 ZDOID，使用时用 ZDOMan.GetZDO(id) 重新获取实时对象。
@@ -46,6 +47,13 @@ namespace VoidChest
         private static Player _player;
         private static long _playerId;
 
+        // 任务上下文：本地（主机/单机）= 实时背包；远程 = 客户端快照（由客户端预过滤）
+        private static Inventory _targetInv;
+        private static bool _preFiltered;
+        private static long _responsePeer;
+        private static long _responseSeq;
+        private static Dictionary<string, int> _initialTotals;
+
         // 反射全量快照（仅存 ID，使用时重新解析）
         private static bool _objectsByIdInit;
         private static AccessTools.FieldRef<ZDOMan, Dictionary<ZDOID, ZDO>> _objectsByIdRef;
@@ -72,8 +80,9 @@ namespace VoidChest
         private static int _processed;
         private static int _skipped;
 
-        // 缓存
+        // 缓存（按玩家作用域：不同玩家的守护石权限不同）
         private static float _cacheTime = -99999f;
+        private static long _cachePlayerId;
         private static readonly List<ZDOID> _cachedGuardIds = new List<ZDOID>();
         private static readonly List<ZDOID> _cachedChestIds = new List<ZDOID>();
 
@@ -100,15 +109,43 @@ namespace VoidChest
                 return;
             }
 
-            if (ZNet.instance == null || !ZNet.instance.IsServer())
+            if (ZNet.instance != null && !ZNet.instance.IsServer())
             {
-                VoidChestManager.Message(player, VoidChestLocalization.L(VoidChestLocalization.RemoteHostOnly));
-                VLog.Info("远程存入：非主机模式，已取消。");
+                // 联机客户端：交由服务端执行（需服务端安装本 mod）
+                VoidChestRemoteNet.RequestRemote(player);
                 return;
             }
 
-            _player = player;
-            _playerId = player.GetPlayerID();
+            BeginJob(0L, 0L, player.GetPlayerID(), player.GetInventory(), false, player);
+        }
+
+        /// <summary>服务端：处理来自客户端的远程存入请求（快照背包由客户端预过滤）。</summary>
+        internal static void StartRemoteJob(long peer, long seq, long playerId, Inventory snapshot)
+        {
+            if (peer == 0L || snapshot == null)
+            {
+                return;
+            }
+
+            if (_phase != Phase.Idle)
+            {
+                VoidChestRemoteNet.SendResult(peer, seq, VoidChestRemoteNet.Status.Busy, 0, 0, 0, null);
+                VLog.Info("远程存入：服务端已有任务在运行，拒绝客户端请求。");
+                return;
+            }
+
+            BeginJob(peer, seq, playerId, snapshot, true, null);
+        }
+
+        private static void BeginJob(long peer, long seq, long playerId, Inventory targetInv, bool preFiltered, Player localPlayer)
+        {
+            _responsePeer = peer;
+            _responseSeq = seq;
+            _playerId = playerId;
+            _targetInv = targetInv;
+            _preFiltered = preFiltered;
+            _player = localPlayer;
+            _initialTotals = preFiltered ? VoidChestItemIdentity.Totals(targetInv) : null;
 
             _guards.Clear();
             _guardIds.Clear();
@@ -147,9 +184,8 @@ namespace VoidChest
             var guardPrefabs = CollectPrefabs(go => go.GetComponent<PrivateArea>() != null);
             if (guardPrefabs.Count == 0)
             {
-                VoidChestManager.Message(player, VoidChestLocalization.L(VoidChestLocalization.RemoteNoGuardstone));
+                Finish(VoidChestRemoteNet.Status.NoGuardstone);
                 VLog.Info("远程存入：未找到守护石 prefab。");
-                _phase = Phase.Idle;
                 return;
             }
 
@@ -199,7 +235,7 @@ namespace VoidChest
                 {
                     if (_chestIndex >= _chests.Count)
                     {
-                        Finish(null);
+                        Finish(VoidChestRemoteNet.Status.Ok);
                         return;
                     }
 
@@ -320,7 +356,7 @@ namespace VoidChest
 
                 if (_guards.Count == 0)
                 {
-                    Finish(VoidChestLocalization.L(VoidChestLocalization.RemoteNoAccess));
+                    Finish(VoidChestRemoteNet.Status.NoAccess);
                     return;
                 }
 
@@ -416,7 +452,7 @@ namespace VoidChest
                 {
                     if (_guards.Count == 0)
                     {
-                        Finish(VoidChestLocalization.L(VoidChestLocalization.RemoteNoAccess));
+                        Finish(VoidChestRemoteNet.Status.NoAccess);
                         return;
                     }
 
@@ -538,6 +574,11 @@ namespace VoidChest
                 return false;
             }
 
+            if (_cachePlayerId != _playerId)
+            {
+                return false; // 缓存属于其他玩家（守护石权限不同）
+            }
+
             if (_cachedGuardIds.Count == 0 && _cachedChestIds.Count == 0)
             {
                 return false;
@@ -606,6 +647,7 @@ namespace VoidChest
             _cachedChestIds.Clear();
             _cachedChestIds.AddRange(_chests);
 
+            _cachePlayerId = _playerId;
             _cacheTime = Time.realtimeSinceStartup;
 
             VLog.Debug($"远程存入：缓存已更新（守护石 {_cachedGuardIds.Count}，箱子 {_cachedChestIds.Count}）。");
@@ -615,8 +657,8 @@ namespace VoidChest
 
         private static void ProcessChest(ZDOID id)
         {
-            var playerInv = _player != null ? _player.GetInventory() : null;
-            if (playerInv == null)
+            var targetInv = _targetInv;
+            if (targetInv == null)
             {
                 return;
             }
@@ -648,7 +690,9 @@ namespace VoidChest
                     temp.Load(new ZPackage(bytes));
                 }
 
-                int moved = VoidChestFilter.StackAllFiltered(temp, playerInv);
+                int moved = _preFiltered
+                    ? VoidChestFilter.StackAllRaw(temp, targetInv)
+                    : VoidChestFilter.StackAllFiltered(temp, targetInv);
 
                 if (moved > 0)
                 {
@@ -672,38 +716,55 @@ namespace VoidChest
             }
         }
 
-        private static void Finish(string overrideMessage)
+        private static void Finish(VoidChestRemoteNet.Status status)
         {
             _phase = Phase.Idle;
 
-            string message;
-            if (!string.IsNullOrEmpty(overrideMessage))
+            if (_responsePeer != 0L)
             {
-                message = overrideMessage;
+                // 远程任务：回传实际移动差异（标识 + 数量），由客户端从实时背包扣除
+                List<KeyValuePair<string, int>> movedEntries = null;
+                if (status == VoidChestRemoteNet.Status.Ok && _initialTotals != null && _targetInv != null)
+                {
+                    movedEntries = BuildMovedEntries();
+                }
+
+                VoidChestRemoteNet.SendResult(_responsePeer, _responseSeq, status, _moved, _processed, _skipped, movedEntries);
             }
-            else if (_moved > 0)
+            else if (_player != null)
             {
-                message = VoidChestLocalization.L(VoidChestLocalization.RemoteStored, _moved, _processed);
-            }
-            else
-            {
-                message = VoidChestLocalization.L(VoidChestLocalization.RemoteNothing, _processed);
+                VoidChestManager.Message(_player, VoidChestRemoteNet.BuildStatusMessage(status, _moved, _processed, _skipped));
             }
 
-            if (_skipped > 0)
-            {
-                message += VoidChestLocalization.L(VoidChestLocalization.RemoteSkipped, _skipped);
-            }
-
-            if (_player != null)
-            {
-                VoidChestManager.Message(_player, message);
-            }
-
-            VLog.Info($"远程存入完成：移动 {_moved} 件，箱子 {_processed}，跳过 {_skipped}，守护石 {_guards.Count}。");
+            VLog.Info($"远程存入完成：状态={status}，移动 {_moved} 堆叠，箱子 {_processed}，跳过 {_skipped}，守护石 {_guards.Count}。");
             VLog.Info(VoidChestPerf.Summary("远程存储", _moved, _processed, 0, _skipped));
 
             _player = null;
+            _targetInv = null;
+            _initialTotals = null;
+            _responsePeer = 0L;
+            _responseSeq = 0L;
+            _preFiltered = false;
+        }
+
+        /// <summary>对比作业前后快照，得出实际从客户端背包移出的物品（标识 → 数量）。</summary>
+        private static List<KeyValuePair<string, int>> BuildMovedEntries()
+        {
+            var result = new List<KeyValuePair<string, int>>();
+            var after = VoidChestItemIdentity.Totals(_targetInv);
+
+            foreach (var kv in _initialTotals)
+            {
+                int left;
+                after.TryGetValue(kv.Key, out left);
+                int moved = kv.Value - left;
+                if (moved > 0)
+                {
+                    result.Add(new KeyValuePair<string, int>(kv.Key, moved));
+                }
+            }
+
+            return result;
         }
 
         // ---------------- 辅助 ----------------

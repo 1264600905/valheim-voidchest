@@ -5,7 +5,7 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>VoidChest</AssemblyName>
     <RootNamespace>VoidChest</RootNamespace>
-    <Version>0.1.0</Version>
+    <Version>0.5.0</Version>
     <Nullable>disable</Nullable>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <OutputPath>..\..\BepInEx\plugins\VoidChest\</OutputPath>

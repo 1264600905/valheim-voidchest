@@ -53,6 +53,43 @@ namespace VoidChest
             return false;
         }
 
+        /// <summary>
+        /// 不做本地规则判断的堆叠（服务端处理客户端预过滤快照时使用；装备排除已在快照构建时完成）。
+        /// 返回移动的堆叠数。
+        /// </summary>
+        internal static int StackAllRaw(Inventory container, Inventory from)
+        {
+            var sw = Stopwatch.StartNew();
+            var items = new List<ItemDrop.ItemData>(from.GetAllItems());
+            int moved = 0;
+
+            foreach (var item in items)
+            {
+                if (item == null || item.m_shared == null)
+                {
+                    continue;
+                }
+
+                if (!container.ContainsItemByName(item.m_shared.m_name))
+                {
+                    continue;
+                }
+
+                if (container.AddItem(item))
+                {
+                    from.RemoveItem(item);
+                    moved++;
+                }
+            }
+
+            sw.Stop();
+            VoidChestPerf.AddStack(sw.Elapsed.TotalMilliseconds);
+
+            VLog.Debug($"StackAllRaw: {container.GetName()} 移动 {moved} 堆叠，耗时 {sw.Elapsed.TotalMilliseconds:F2}ms");
+
+            return moved;
+        }
+
         /// <summary>把玩家背包中与容器同名的物品按过滤规则堆入容器，返回移动的堆叠数。</summary>
         internal static int StackAllFiltered(Inventory container, Inventory from)
         {

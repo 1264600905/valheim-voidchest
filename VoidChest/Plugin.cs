@@ -12,7 +12,7 @@ namespace VoidChest
     {
         public const string Guid = "liu.valheim.voidchest";
         public const string PluginName = "Void Chest";
-        public const string PluginVersion = "0.4.1";
+        public const string PluginVersion = "0.5.0";
 
         internal static VoidChestPlugin Instance;
         internal static ManualLogSource Log;
@@ -149,6 +149,7 @@ namespace VoidChest
         {
             VoidChestNearbyStore.Update();
             VoidChestRemoteStore.Update();
+            VoidChestRemoteNet.Update();
 
             var player = Player.m_localPlayer;
             if (player == null || InventoryGui.instance == null)

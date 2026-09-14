@@ -30,7 +30,9 @@ namespace VoidChest
         internal const string NearbyTimeout = "$vc_nearby_timeout";
 
         internal const string RemoteInProgress = "$vc_remote_in_progress";
-        internal const string RemoteHostOnly = "$vc_remote_host_only";
+        internal const string RemoteRequested = "$vc_remote_requested";
+        internal const string RemoteServerMissing = "$vc_remote_server_missing";
+        internal const string RemoteDisabled = "$vc_remote_disabled";
         internal const string RemoteNoGuardstone = "$vc_remote_no_guardstone";
         internal const string RemoteNoAccess = "$vc_remote_no_access";
         internal const string RemoteStored = "$vc_remote_stored";
@@ -82,8 +84,12 @@ namespace VoidChest
 
             (RemoteInProgress, "Remote deposit is already in progress...",
                 "远程存入正在进行中...", "遠端存入正在進行中..."),
-            (RemoteHostOnly, "Remote deposit is only available in singleplayer or as the host.",
-                "远程存入仅支持单机/主机模式", "遠端存入僅支援單機/主機模式"),
+            (RemoteRequested, "Remote deposit request sent, waiting for the server...",
+                "已向服务器发送远程存入请求，正在等待处理...", "已向伺服器發送遠端存入請求，正在等待處理..."),
+            (RemoteServerMissing, "No response from the server: remote deposit requires the mod on the server.",
+                "服务器未响应：远程存入需要服务端也安装本 mod。", "伺服器未回應：遠端存入需要伺服器也安裝本 mod。"),
+            (RemoteDisabled, "Remote deposit is disabled on the server.",
+                "服务器已禁用远程存入。", "伺服器已停用遠端存入。"),
             (RemoteNoGuardstone, "No guard stone found in the world.",
                 "世界中未找到守护石。", "世界中未找到守護石。"),
             (RemoteNoAccess, "You have access to no guard stone.",
