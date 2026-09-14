@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
 
@@ -13,6 +15,9 @@ namespace VoidChest
 
         private static VirtualContainer _container;
         private static ItemDrop.ItemData _openItem;
+
+        private static bool _extraSlotsInitialized;
+        private static MethodInfo _extraSlotsGetEquipped;
 
         internal static void Toggle(Player player)
         {
@@ -54,32 +59,78 @@ namespace VoidChest
         internal static ItemDrop.ItemData GetEquippedChest(Player player)
         {
             var inv = player.GetInventory();
-            if (inv == null)
+            if (inv != null)
             {
-                return null;
-            }
-
-            var equipped = inv.GetEquippedItems();
-            if (VLog.DebugEnabled)
-            {
-                var names = new List<string>();
-                foreach (var e in equipped)
+                foreach (var item in inv.GetEquippedItems())
                 {
-                    names.Add(e?.m_shared?.m_name ?? "?");
+                    if (IsVoidChestItem(item))
+                    {
+                        VLog.Debug($"原版装备槽检测到虚空宝箱: prefab={item.m_dropPrefab.name}, name={item.m_shared.m_name}");
+                        return item;
+                    }
                 }
-                VLog.Debug($"已装备物品: [{string.Join(", ", names)}]");
             }
 
-            foreach (var item in equipped)
+            InitExtraSlots();
+
+            if (_extraSlotsGetEquipped != null)
             {
-                if (item?.m_dropPrefab != null && item.m_dropPrefab.name.StartsWith(PrefabPrefix))
+                try
                 {
-                    VLog.Debug($"检测到虚空宝箱: prefab={item.m_dropPrefab.name}, name={item.m_shared.m_name}");
-                    return item;
+                    var list = _extraSlotsGetEquipped.Invoke(null, new object[] { player }) as List<ItemDrop.ItemData>;
+                    if (list != null)
+                    {
+                        foreach (var item in list)
+                        {
+                            if (IsVoidChestItem(item))
+                            {
+                                VLog.Debug($"ExtraSlots 额外槽检测到虚空宝箱: prefab={item.m_dropPrefab.name}, name={item.m_shared.m_name}");
+                                return item;
+                            }
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    VLog.Warn("ExtraSlots 装备检测失败，降级为原版槽检测: " + e.Message);
+                    _extraSlotsGetEquipped = null;
                 }
             }
 
             return null;
+        }
+
+        private static bool IsVoidChestItem(ItemDrop.ItemData item)
+        {
+            return item?.m_dropPrefab != null && item.m_dropPrefab.name.StartsWith(PrefabPrefix);
+        }
+
+        private static void InitExtraSlots()
+        {
+            if (_extraSlotsInitialized)
+            {
+                return;
+            }
+
+            _extraSlotsInitialized = true;
+
+            var type = AccessTools.TypeByName("ExtraSlots.ExtraUtilitySlots");
+            if (type == null)
+            {
+                VLog.Debug("未检测到 ExtraSlots，仅使用原版装备槽。");
+                return;
+            }
+
+            _extraSlotsGetEquipped = AccessTools.Method(type, "GetEquippedItems", new[] { typeof(Humanoid) });
+
+            if (_extraSlotsGetEquipped != null)
+            {
+                VLog.Info("检测到 ExtraSlots，额外 Utility 槽参与装备检测。");
+            }
+            else
+            {
+                VLog.Warn("检测到 ExtraSlots 但未找到 ExtraUtilitySlots.GetEquippedItems，跳过额外槽检测。");
+            }
         }
 
         private static VirtualContainer EnsureContainer(Player player)
@@ -164,6 +215,16 @@ namespace VoidChest
                 VLog.Debug($"Player.Save 触发 flush，当前库存 {inv.NrOfItems()} 件。");
                 VoidChestSave.SaveFrom(inv, player);
             }
+        }
+
+        internal static void Message(Player player, string text)
+        {
+            if (player == null || MessageHud.instance == null)
+            {
+                return;
+            }
+
+            player.Message(MessageHud.MessageType.Center, text);
         }
     }
 }

@@ -73,4 +73,40 @@ namespace VoidChest
             VoidChestManager.FlushActive(__instance);
         }
     }
+
+    /// <summary>附近存储流程中，用过滤版本替换原版 Inventory.StackAll。</summary>
+    [HarmonyPatch(typeof(Inventory), nameof(Inventory.StackAll))]
+    internal static class InventoryStackAllPatch
+    {
+        private static bool Prefix(Inventory __instance, Inventory fromInventory, ref int __result)
+        {
+            if (!VoidChestNearbyStore.FilterActive)
+            {
+                return true;
+            }
+
+            __result = VoidChestNearbyStore.FilteredStackAll(__instance, fromInventory, false);
+            return false;
+        }
+    }
+
+    /// <summary>捕获容器堆叠 RPC 响应，推进附近存储队列。</summary>
+    [HarmonyPatch(typeof(Container), "RPC_StackResponse")]
+    internal static class ContainerRpcStackResponsePatch
+    {
+        private static void Postfix()
+        {
+            VoidChestNearbyStore.OnStackResponse();
+        }
+    }
+
+    /// <summary>容器界面显示后刷新自定义按钮显隐。</summary>
+    [HarmonyPatch(typeof(InventoryGui), nameof(InventoryGui.Show))]
+    internal static class InventoryGuiShowPatch
+    {
+        private static void Postfix(Container container)
+        {
+            VoidChestUi.OnContainerShown(container);
+        }
+    }
 }
