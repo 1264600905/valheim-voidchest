@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2026 liu (https://github.com/1264600905)
+Copyright (c) 2026 白金trigger (https://github.com/1264600905)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

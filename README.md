@@ -1,29 +1,134 @@
-# 虚空宝箱（Void Chest）
+# Void Chest
 
-一个 Valheim 模组：一件随角色旅行的魔法容器。
+A Valheim mod: a magic container that travels with your character.
 
-装备后按热键打开专属容器；内容绑定在**角色存档**上 —— 丢进箱子、交易、掉落、合成升级都不会丢失或转移。支持四级升级链、附近快速存储与「守护石」远程仓库。
+Equip it and press the hotkey to open your personal container. Contents are bound to the **character save** — dropping it, trading it, dying, or upgrading it never moves or loses the contents. Comes with a four-tier upgrade chain, nearby quick storage, and a guard-stone remote deposit.
 
-> 本地化：English / 简体中文 / 繁體中文
+> Localization: English / Simplified Chinese / Traditional Chinese
 
 ---
 
-## 功能
+## Features
 
-- **四级宝箱链**：黑金属 → 魔能 → 烈焰 → 水晶，容量依次 `2×6 / 3×6 / 3×8 / 4×8`（可配置）。
-- **角色级数据**：内容存于角色档案（`Player.m_customData`），跨世界、跨服务器随身携带；宝箱物品只是"钥匙"。
-- **装备打开**：占用 Utility 槽（兼容 ExtraSlots 额外槽），默认热键 `B`（可配置）。
-- **重量上限**：默认 `100 / 150 / 300 / 800`（0 = 无限制，可配置）。
-  - 拖拽 / Shift 快速移动超额时**自动分堆**（只存入可容纳数量）。
-  - 重量已满时**无反应**（物品回弹）。
-  - 容器重量显示为 `当前/上限`。
-  - 附近 / 远程存储**不受重量限制**。
-- **附近存储**：一键把背包物品存进周围 30m（可配置）内所有箱子。
-  - 自动忽略：物品栏第一排（快捷栏）、已装备物品、ExtraSlots 专用槽位（快捷/弹药/食物/杂项/额外装备）、被其他玩家占用的箱子。
-- **守护石远程仓库**：出门在外，把物资远程存进「你有权限的守护石」领地范围内的**家里所有箱子**。
-- **可配置**：容量、重量、范围、过滤规则、远程解锁方式、热键、超时与缓存（支持 ConfigurationManager）。
+- **Four-tier chest chain**: Black Metal → Eitr → Flametal → Crystal, capacities `2x6 / 3x6 / 3x8 / 4x8` (configurable).
+- **Character-level data**: contents live in the character file (`Player.m_customData`) and follow you across worlds and servers; the chest item is just a "key".
+- **Equip to open**: uses a Utility slot (compatible with ExtraSlots extra slots), default hotkey `B` (configurable).
+- **Weight limit**: defaults `100 / 150 / 300 / 800` (0 = unlimited, configurable).
+  - Drag / Shift-move over the limit **auto-splits** (stores only what fits).
+  - When full, items **bounce back** (no silent loss).
+  - Container weight is shown as `current/max`.
+  - Nearby / remote storage is **not** limited by weight.
+- **Nearby storage**: one click stores backpack items into all containers within 30 m (configurable).
+  - Automatically ignores: the first hotbar row, equipped items, ExtraSlots dedicated slots (quick/ammo/food/misc/extra equipment), and containers in use by other players.
+- **Guard-stone remote deposit**: while away from home, deposit materials remotely into **all containers** inside the territory of a guard stone you have access to.
+- **Configurable**: capacities, weights, ranges, filters, remote unlock, hotkey, timeouts, caching (ConfigurationManager supported).
 
-## 制作配方
+## Recipe
+
+| Tier | Item | Capacity (default) | Materials | Station |
+|---|---|---|---|---|
+| 1 | Black Metal Void Chest | 2x6 | Dragon Tear x5 + Fine Wood x10 + Black Metal x20 | Forge |
+| 2 | Eitr Void Chest | 3x6 | Black Metal Void Chest x1 + Refined Eitr x10 + Yagluth Thing x2 | Forge |
+| 3 | Flametal Void Chest | 3x8 | Eitr Void Chest x1 + Flametal x10 + Fader Relic x2 | Black Forge |
+| 4 | Crystal Void Chest | 4x8 | Flametal Void Chest x1 + Blood Gold x10 + Liquid Frost x10 | Black Forge |
+
+## Usage
+
+1. Equip the Void Chest (Utility slot).
+2. Press `B` to open the interface.
+3. Interface buttons (single button, toggles):
+   - **Nearby Storage**: store into surrounding containers;
+   - **Remote Deposit**: store into home containers inside a guard stone's territory (requires Eitr/L2 or higher chest; can be set to always available in config).
+4. Vanilla "Stack All / Take All" buttons still work.
+
+## Remote Deposit Notes
+
+- You must be the guard stone's **creator** or be on its **permitted** list.
+- Range is the guard stone's own territory radius (XZ circle).
+- **Works for multiplayer clients**: both the server (dedicated or host) and the client must have this mod installed.
+  - The client sends a filtered backpack snapshot to the server; the server scans and stores, then returns the result;
+  - The client removes exactly the items the server reports — safe even if the inventory changed while waiting;
+  - If the server does not have the mod, a "no response" message appears after ~30 s;
+  - Server can disable it with `RemoteStore.Enabled = false`.
+- Scan results are cached (default 300 s, per player); repeated deposits complete in seconds. Removed containers are skipped automatically.
+
+## Configuration
+
+File: `BepInEx/config/trigger.valheim.voidchest.cfg` (ConfigurationManager supported).
+
+| Section | Key | Default | Description |
+|---|---|---|---|
+| General | OpenHotkey | B | Open/close hotkey |
+| General | DebugLog | true | Debug logging |
+| Capacity | BlackMetal / Magic / Flame / Crystal Rows/Cols | 2x6 / 3x6 / 3x8 / 4x8 | Capacity per tier (1-8) |
+| Weight | BlackMetal / Magic / Flame / Crystal Max | 100 / 150 / 300 / 800 | Weight limit (0-9999, 0 = unlimited) |
+| NearbyStore | Enabled | true | Enable nearby storage |
+| NearbyStore | Range | 30 | Search radius (1-100 m) |
+| NearbyStore | CheckWard | true | Skip containers in territories you lack access to |
+| NearbyStore | IgnoreHotbar | true | Do not store hotbar items |
+| NearbyStore | IgnoreFood / IgnoreAmmo / IgnoreMead | false | Do not store food / ammo / mead |
+| NearbyStore | TimeoutSeconds | 2 | Per-container response timeout |
+| RemoteStore | Enabled | true | Enable remote deposit |
+| RemoteStore | AlwaysAvailable | false | Remote always available (false = unlocked by Eitr/L2) |
+| RemoteStore | CacheSeconds | 300 | Scan cache time (0 = rescan every time) |
+
+## Installation
+
+1. Install [BepInExPack for Valheim](https://thunderstore.io/c/valheim/p/denikson/BepInExPack_Valheim/).
+2. Install [Jotunn](https://thunderstore.io/c/valheim/p/ValheimModding/Jotunn/).
+3. Drop `VoidChest.dll` into `BepInEx/plugins/VoidChest/`.
+
+## Dependencies
+
+- BepInExPack Valheim 5.4.2350+
+- Jotunn 2.29.2+
+- Optional: [Valheim Plus](https://thunderstore.io/c/valheim/p/Grantapher/ValheimPlus_Grantapher_Temporary/) (compatible; AutoStack spread is suppressed while nearby storage runs)
+- Optional: [ExtraSlots](https://thunderstore.io/c/valheim/p/shudnal/ExtraSlots/) (extra Utility slot support)
+
+## Repository
+
+https://github.com/1264600905/valheim-voidchest
+
+## Build
+
+```powershell
+cd VoidChest
+dotnet build .\VoidChest.csproj -c Release
+```
+
+Output: `BepInEx/plugins/VoidChest/VoidChest.dll` (output path is preconfigured).
+
+## Known Limitations
+
+- Remote deposit requires the **same mod version on server and client** (otherwise you get the "no response" message).
+- After changing capacities, items beyond the visible range keep their data but are hidden (visible again with a larger capacity).
+- Uninstalling the mod makes the chest item inert; character data is preserved (reinstall to recover).
+
+## Changelog
+
+- **0.5.0**: Remote deposit supports multiplayer clients (custom RPC: client snapshot → server processing → diff-based removal); scan cache per player.
+- **0.4.x**: Configurable capacity/weight; remote unlock (Eitr/L2 by default); single toggle button; localized item descriptions (EN/CN/TW); L3 recipe material fix.
+- **0.3.2**: Remote storage performance (full snapshot classification, caching, 8 ms frame budget, staged perf stats).
+- **0.3.1**: Fixed ZDO object pool reuse risk (store only ZDOIDs).
+- **0.3.0**: P2 guard-stone remote warehouse.
+- **0.2.0**: P1 nearby storage, ExtraSlots compatibility, V+ gate, UI buttons.
+- **0.1.x**: P0 basics (item/recipe/virtual container/save/hotkey).
+
+---
+
+## 简体中文
+
+一个 Valheim 模组：一件随角色旅行的魔法容器。
+
+装备后按热键打开专属容器；内容绑定在**角色存档**上——丢进箱子、交易、掉落、合成升级都不会丢失或转移。支持四级升级链、附近快速存储与「守护石」远程仓库。
+
+- **四级宝箱链**：黑金属 → 魔能 → 烈焰 → 水晶，容量 `2×6 / 3×6 / 3×8 / 4×8`（可配置）。
+- **角色级数据**：内容存于角色档案，跨世界、跨服务器随身携带。
+- **装备打开**：占用 Utility 槽（兼容 ExtraSlots 额外槽），默认热键 `B`。
+- **重量上限**：`100 / 150 / 300 / 800`（0 = 无限制）；超额自动分堆，满了物品回弹。
+- **附近存储**：一键存入周围 30m 内所有箱子（忽略快捷栏/已装备/ExtraSlots 专用槽/被占用箱子）。
+- **守护石远程仓库**：远程存入有权限守护石领地内的家箱（联机需服务端同版本）。
+- **可配置**：容量、重量、范围、过滤、远程解锁、热键、超时与缓存。
 
 | 等级 | 物品 | 容量（默认） | 配方材料 | 工作台 |
 |---|---|---|---|---|
@@ -32,84 +137,25 @@
 | 3 | 烈焰虚空宝箱 | 3×8 | 魔能虚空宝箱×1 + 焰金属×10 + 青焰龙王圣物×2 | 黑熔炉 |
 | 4 | 水晶虚空宝箱 | 4×8 | 烈焰虚空宝箱×1 + 血金×10 + 液态冰霜×10 | 黑熔炉 |
 
-## 使用
+---
 
-1. 装备虚空宝箱（Utility 槽）。
-2. 按 `B` 打开界面。
-3. 界面按钮（单按钮动态切换）：
-   - **附近存储**：存入周围箱子；
-   - **远程存入**：存入守护石领地内的家箱（需要装备魔能/L2 及以上宝箱解锁；或在配置中开启"始终可用"）。
-4. 原版"全部堆叠 / 全部取出"按钮同样可用。
+## 繁體中文
 
-## 远程仓库说明
+一個 Valheim 模組：一件隨角色旅行的魔法容器。
 
-- 需要玩家是守护石的**创建者**或已在它的 **permitted（允许）名单**中。
-- 范围使用守护石自带的领地半径（XZ 圆形）。
-- **联机客户端可用**：只要**服务端（专用服务器或联机主机）与客户端都安装本 mod** 即可。
-  - 点击"远程存入"后，客户端把过滤后的背包快照发给服务端，由服务端完成扫描与堆入，再回传结果；
-  - 客户端按服务端回传的差异精确扣除物品，物品栏在等待期间发生变化也不会误删；
-  - 服务端未安装本 mod 时，约 30 秒后提示"服务器未响应"；
-  - 服务端可通过 `RemoteStore.Enabled = false` 禁用远程存入。
-- 扫描结果会缓存（默认 300 秒，按玩家隔离），重复存入秒级完成；被拆的箱子自动跳过。
+裝備後按熱鍵打開專屬容器；內容綁定在**角色存檔**上——丟進箱子、交易、掉落、合成升級都不會遺失或轉移。支援四級升級鏈、附近快速存儲與「守護石」遠端倉庫。
 
-## 配置
+- **四級寶箱鏈**：黑金屬 → 魔能 → 烈焰 → 水晶，容量 `2×6 / 3×6 / 3×8 / 4×8`（可設定）。
+- **角色級資料**：內容存於角色檔案，跨世界、跨伺服器隨身攜帶。
+- **裝備打開**：佔用 Utility 槽（相容 ExtraSlots 額外槽），預設熱鍵 `B`。
+- **重量上限**：`100 / 150 / 300 / 800`（0 = 無限制）；超額自動分堆，滿了物品回彈。
+- **附近存儲**：一鍵存入周圍 30m 內所有箱子（忽略快捷欄/已裝備/ExtraSlots 專用槽/被佔用箱子）。
+- **守護石遠端倉庫**：遠端存入有權限守護石領地內的家箱（連線需伺服器同版本）。
+- **可設定**：容量、重量、範圍、過濾、遠端解鎖、熱鍵、逾時與快取。
 
-配置文件：`BepInEx/config/liu.valheim.voidchest.cfg`（支持 ConfigurationManager 图形界面）。
-
-| 配置节 | 键 | 默认 | 说明 |
-|---|---|---|---|
-| General | OpenHotkey | B | 打开/关闭热键 |
-| General | DebugLog | true | 调试日志 |
-| Capacity | BlackMetal / Magic / Flame / Crystal 的 Rows/Cols | 2×6 / 3×6 / 3×8 / 4×8 | 每级容量（1-8） |
-| Weight | BlackMetal / Magic / Flame / Crystal 的 Max | 100 / 150 / 300 / 800 | 重量上限（0-9999，0=无限制） |
-| NearbyStore | Enabled | true | 启用附近存储 |
-| NearbyStore | Range | 30 | 搜索半径（1-100 米） |
-| NearbyStore | CheckWard | true | 跳过无权限领地内的容器 |
-| NearbyStore | IgnoreHotbar | true | 不存储快捷栏物品 |
-| NearbyStore | IgnoreFood / IgnoreAmmo / IgnoreMead | false | 不存储食物 / 弹药 / 蜜酒 |
-| NearbyStore | TimeoutSeconds | 2 | 单容器响应超时 |
-| RemoteStore | Enabled | true | 启用远程存入 |
-| RemoteStore | AlwaysAvailable | false | 远程是否始终可用（false = 魔能/L2 解锁） |
-| RemoteStore | CacheSeconds | 300 | 扫描缓存时间（0=每次重扫） |
-
-## 安装
-
-1. 安装 [BepInExPack for Valheim](https://thunderstore.io/c/valheim/p/denikson/BepInExPack_Valheim/)。
-2. 安装 [Jotunn](https://thunderstore.io/c/valheim/p/ValheimModding/Jotunn/)。
-3. 将 `VoidChest.dll` 放入 `BepInEx/plugins/VoidChest/`。
-
-## 依赖
-
-- BepInExPack Valheim 5.4.2350+
-- Jotunn 2.29.2+
-- 可选：[Valheim Plus](https://thunderstore.io/c/valheim/p/Grantapher/ValheimPlus_Grantapher_Temporary/)（兼容，启用附近存储时自动屏蔽其 AutoStack 扩散）
-- 可选：[ExtraSlots](https://thunderstore.io/c/valheim/p/shudnal/ExtraSlots/)（额外 Utility 槽装备支持）
-
-## 构建
-
-```powershell
-cd VoidChest
-dotnet build .\VoidChest.csproj -c Release
-```
-
-输出：`BepInEx/plugins/VoidChest/VoidChest.dll`（工程内已配置输出路径）。
-
-## 已知限制
-
-- 远程存入需要**服务端与客户端安装相同版本**的本 mod（否则收到"服务器未响应"提示）。
-- 调整容量后，超出显示范围的物品数据会保留但不可见（换回更大容量可见）。
-- 卸载模组后宝箱物品会失效；角色档案中的数据仍保留（重装可恢复）。
-
-## 更新日志
-
-- **0.5.0**：远程存入支持联机客户端（自定义 RPC：客户端快照 → 服务端处理 → 回传差异扣除），需服务端安装同版本 mod；扫描缓存按玩家隔离。
-- **0.4.x**：容量/重量可配置；远程解锁机制（默认 L2 解锁）；单按钮动态切换；物品描述本地化（英/简/繁）；L3 配方材料修正。
-- **0.3.2**：远程存储性能优化（全量快照分类、缓存、8ms 帧预算、分阶段性能统计）。
-- **0.3.1**：修复 ZDO 对象池复用风险（只保存 ZDOID）。
-- **0.3.0**：P2 守护石远程仓库。
-- **0.2.0**：P1 附近存储、ExtraSlots 兼容、V+ 门控、界面按钮。
-- **0.1.x**：P0 基础（物品/配方/虚拟容器/存档/热键）。
-
-## 仓库
-
-https://github.com/1264600905/valheim-voidchest （Private，开发中）
+| 等級 | 物品 | 容量（預設） | 配方材料 | 工作台 |
+|---|---|---|---|---|
+| 1 | 黑金屬虛空寶箱 | 2×6 | 龍之淚×5 + 細木×10 + 黑金屬×20 | 熔爐 |
+| 2 | 魔能虛空寶箱 | 3×6 | 黑金屬虛空寶箱×1 + 埃達精華×10 + 裂魂×2 | 熔爐 |
+| 3 | 烈焰虛空寶箱 | 3×8 | 魔能虛空寶箱×1 + 焰金屬×10 + 青焰龍王聖物×2 | 黑熔爐 |
+| 4 | 水晶虛空寶箱 | 4×8 | 烈焰虛空寶箱×1 + 血金×10 + 液態冰霜×10 | 黑熔爐 |

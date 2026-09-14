@@ -7,6 +7,13 @@
 # Release packages
 dist/
 
+# Local deployment helpers (machine-specific)
+deploy-when-closed.ps1
+deploy.log
+
+# LuckyTrinket lives in its own repository
+LuckyTrinket/
+
 # IDE
 .vs/
 .vscode/

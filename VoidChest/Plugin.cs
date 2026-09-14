@@ -10,9 +10,9 @@ namespace VoidChest
     [BepInDependency(Jotunn.Main.ModGuid)]
     public class VoidChestPlugin : BaseUnityPlugin
     {
-        public const string Guid = "liu.valheim.voidchest";
+        public const string Guid = "trigger.valheim.voidchest";
         public const string PluginName = "Void Chest";
-        public const string PluginVersion = "0.5.0";
+        public const string PluginVersion = "0.5.1";
 
         internal static VoidChestPlugin Instance;
         internal static ManualLogSource Log;
