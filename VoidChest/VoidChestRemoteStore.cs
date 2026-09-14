@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using HarmonyLib;
 using UnityEngine;
 
 namespace VoidChest
@@ -8,15 +9,17 @@ namespace VoidChest
     /// <summary>
     /// P2 守护石远程仓库：扫描玩家有权限的守护石领地范围内的所有箱子，远程堆入背包物品。
     /// 仅在主机/单机模式执行（服务端 ZDO 权威）；专用服务器需服务端安装本 mod。
-    /// 全程按 ZDO 数据操作（远处箱子 GameObject 未加载）。
+    /// 优先使用反射全量快照（一次遍历所有 ZDO），失败时降级为按 prefab 名分帧扫描。
     /// </summary>
     internal static class VoidChestRemoteStore
     {
         private enum Phase
         {
             Idle,
-            Guards,
-            Chests,
+            FullScan,   // 反射全量快照分类（守护石 + 容器候选）
+            ChestFilter,// 容器候选筛选（守护石范围内 / 未占用）
+            Guards,     // 降级：按守护石 prefab 名扫描
+            Chests,     // 降级：按容器 prefab 名扫描
             Stacking
         }
 
@@ -32,12 +35,24 @@ namespace VoidChest
         private static Player _player;
         private static long _playerId;
 
+        // 反射全量快照
+        private static bool _objectsByIdInit;
+        private static AccessTools.FieldRef<ZDOMan, Dictionary<ZDOID, ZDO>> _objectsByIdRef;
+        private static List<ZDO> _snapshot;
+        private static int _cursor;
+        private static readonly List<ZDO> _chestCandidates = new List<ZDO>();
+        private static int _candidateCursor;
+        private static readonly Dictionary<int, byte> _prefabKind = new Dictionary<int, byte>();
+
+        // 降级：prefab 名扫描
         private static List<string> _prefabNames = new List<string>();
         private static int _prefabIndex;
         private static readonly List<ZDO> _found = new List<ZDO>();
         private static int _iter;
 
+        // 结果
         private static readonly List<GuardInfo> _guards = new List<GuardInfo>();
+        private static readonly List<ZDOID> _guardIds = new List<ZDOID>();
         private static readonly Dictionary<ZDOID, ZDO> _chests = new Dictionary<ZDOID, ZDO>();
         private static readonly List<ZDO> _chestList = new List<ZDO>();
         private static int _chestIndex;
@@ -45,6 +60,11 @@ namespace VoidChest
         private static int _moved;
         private static int _processed;
         private static int _skipped;
+
+        // 缓存
+        private static float _cacheTime = -99999f;
+        private static readonly List<ZDOID> _cachedGuardIds = new List<ZDOID>();
+        private static readonly List<ZDOID> _cachedChestIds = new List<ZDOID>();
 
         private static readonly Dictionary<int, float> _guardRadiusCache = new Dictionary<int, float>();
         private static readonly Dictionary<int, Vector2i> _containerSizeCache = new Dictionary<int, Vector2i>();
@@ -59,6 +79,7 @@ namespace VoidChest
             if (_phase != Phase.Idle)
             {
                 VoidChestManager.Message(player, "远程存入正在进行中...");
+                VLog.Info("远程存入：已有流程进行中，忽略本次点击。");
                 return;
             }
 
@@ -75,34 +96,57 @@ namespace VoidChest
                 return;
             }
 
+            _player = player;
+            _playerId = player.GetPlayerID();
+
+            _guards.Clear();
+            _guardIds.Clear();
+            _chests.Clear();
+            _chestList.Clear();
+            _chestCandidates.Clear();
+            _found.Clear();
+
+            _moved = 0;
+            _processed = 0;
+            _skipped = 0;
+            _chestIndex = 0;
+            _candidateCursor = 0;
+
+            VoidChestPerf.Reset();
+
+            // 1) 尝试缓存
+            if (TryUseCache())
+            {
+                _phase = Phase.Stacking;
+                VLog.Info($"远程存入开始：缓存命中（守护石 {_guards.Count}，箱子 {_chestList.Count}）。");
+                return;
+            }
+
+            // 2) 反射全量快照优先
+            if (EnsureObjectsByIdRef())
+            {
+                _snapshot = SnapshotZdos();
+                _cursor = 0;
+                _phase = Phase.FullScan;
+                VLog.Info($"远程存入开始：全量快照 {(_snapshot != null ? _snapshot.Count : 0)} 个 ZDO（玩家 ID {_playerId}）。");
+                return;
+            }
+
+            // 3) 降级：按 prefab 名扫描
             var guardPrefabs = CollectPrefabs(go => go.GetComponent<PrivateArea>() != null);
             if (guardPrefabs.Count == 0)
             {
                 VoidChestManager.Message(player, "世界中未找到守护石。");
                 VLog.Info("远程存入：未找到守护石 prefab。");
+                _phase = Phase.Idle;
                 return;
             }
-
-            _player = player;
-            _playerId = player.GetPlayerID();
-
-            _guards.Clear();
-            _chests.Clear();
-            _chestList.Clear();
-            _found.Clear();
 
             _prefabNames = guardPrefabs;
             _prefabIndex = 0;
             _iter = 0;
-
-            _moved = 0;
-            _processed = 0;
-            _skipped = 0;
-
-            VoidChestPerf.Reset();
             _phase = Phase.Guards;
-
-            VLog.Info($"远程存入开始：守护石 prefab {guardPrefabs.Count} 种，玩家 ID {_playerId}。");
+            VLog.Info($"远程存入开始：降级 prefab 扫描模式（守护石 prefab {guardPrefabs.Count} 种，玩家 ID {_playerId}）。");
         }
 
         internal static void Update()
@@ -114,111 +158,27 @@ namespace VoidChest
 
             float budgetEnd = Time.realtimeSinceStartup + 0.004f;
 
+            if (_phase == Phase.FullScan)
+            {
+                UpdateFullScan(budgetEnd);
+                return;
+            }
+
+            if (_phase == Phase.ChestFilter)
+            {
+                UpdateChestFilter(budgetEnd);
+                return;
+            }
+
             if (_phase == Phase.Guards)
             {
-                while (Time.realtimeSinceStartup < budgetEnd)
-                {
-                    if (_prefabIndex >= _prefabNames.Count)
-                    {
-                        if (_guards.Count == 0)
-                        {
-                            Finish("没有找到你有权限的守护石");
-                            return;
-                        }
-
-                        BeginChestScan();
-                        break;
-                    }
-
-                    var name = _prefabNames[_prefabIndex];
-                    var sw = Stopwatch.StartNew();
-                    bool done = ZDOMan.instance.GetAllZDOsWithPrefabIterative(name, _found, ref _iter);
-                    sw.Stop();
-                    VoidChestPerf.AddScan(sw.Elapsed.TotalMilliseconds);
-
-                    if (done)
-                    {
-                        foreach (var zdo in _found)
-                        {
-                            if (!zdo.IsValid())
-                            {
-                                continue;
-                            }
-
-                            if (!HasAccess(zdo))
-                            {
-                                continue;
-                            }
-
-                            _guards.Add(new GuardInfo
-                            {
-                                Pos = zdo.GetPosition(),
-                                Radius = GetGuardRadius(zdo.GetPrefab())
-                            });
-                        }
-
-                        _found.Clear();
-                        _iter = 0;
-                        _prefabIndex++;
-                    }
-                }
-
+                UpdateGuards(budgetEnd);
                 return;
             }
 
             if (_phase == Phase.Chests)
             {
-                while (Time.realtimeSinceStartup < budgetEnd)
-                {
-                    if (_prefabIndex >= _prefabNames.Count)
-                    {
-                        _chestList.AddRange(_chests.Values);
-                        _chestIndex = 0;
-                        _phase = Phase.Stacking;
-                        VLog.Info($"远程存入：目标箱子 {_chestList.Count} 个（有权限守护石 {_guards.Count} 个）。");
-                        break;
-                    }
-
-                    var name = _prefabNames[_prefabIndex];
-                    var sw = Stopwatch.StartNew();
-                    bool done = ZDOMan.instance.GetAllZDOsWithPrefabIterative(name, _found, ref _iter);
-                    sw.Stop();
-                    VoidChestPerf.AddScan(sw.Elapsed.TotalMilliseconds);
-
-                    if (done)
-                    {
-                        foreach (var zdo in _found)
-                        {
-                            if (!zdo.IsValid())
-                            {
-                                continue;
-                            }
-
-                            if (_chests.ContainsKey(zdo.m_uid))
-                            {
-                                continue;
-                            }
-
-                            if (!IsInAnyGuard(zdo.GetPosition()))
-                            {
-                                continue;
-                            }
-
-                            if (zdo.GetInt(ZDOVars.s_inUse) == 1)
-                            {
-                                _skipped++;
-                                continue;
-                            }
-
-                            _chests[zdo.m_uid] = zdo;
-                        }
-
-                        _found.Clear();
-                        _iter = 0;
-                        _prefabIndex++;
-                    }
-                }
-
+                UpdateChests(budgetEnd);
                 return;
             }
 
@@ -237,6 +197,237 @@ namespace VoidChest
             }
         }
 
+        // ---------------- 反射全量快照 ----------------
+
+        private static bool EnsureObjectsByIdRef()
+        {
+            if (_objectsByIdInit)
+            {
+                return _objectsByIdRef != null;
+            }
+
+            _objectsByIdInit = true;
+
+            try
+            {
+                _objectsByIdRef = AccessTools.FieldRefAccess<ZDOMan, Dictionary<ZDOID, ZDO>>("m_objectsByID");
+            }
+            catch (Exception e)
+            {
+                _objectsByIdRef = null;
+                VLog.Warn("ZDOMan.m_objectsByID 反射失败，降级为 prefab 扫描模式: " + e.Message);
+            }
+
+            return _objectsByIdRef != null;
+        }
+
+        private static List<ZDO> SnapshotZdos()
+        {
+            var sw = Stopwatch.StartNew();
+            var dict = _objectsByIdRef(ZDOMan.instance);
+            var list = new List<ZDO>(dict.Count);
+
+            foreach (var kv in dict)
+            {
+                if (kv.Value != null)
+                {
+                    list.Add(kv.Value);
+                }
+            }
+
+            sw.Stop();
+            VoidChestPerf.AddScan(sw.Elapsed.TotalMilliseconds);
+
+            return list;
+        }
+
+        private static void UpdateFullScan(float budgetEnd)
+        {
+            if (_snapshot == null)
+            {
+                _phase = Phase.ChestFilter;
+                return;
+            }
+
+            int processed = 0;
+
+            while (_cursor < _snapshot.Count)
+            {
+                var zdo = _snapshot[_cursor++];
+                processed++;
+
+                if (zdo != null)
+                {
+                    byte kind;
+                    try
+                    {
+                        kind = ClassifyPrefab(zdo.GetPrefab());
+                    }
+                    catch
+                    {
+                        kind = 0;
+                    }
+
+                    if (kind == 1)
+                    {
+                        if (zdo.IsValid() && HasAccess(zdo))
+                        {
+                            _guards.Add(new GuardInfo
+                            {
+                                Pos = zdo.GetPosition(),
+                                Radius = GetGuardRadius(zdo.GetPrefab())
+                            });
+                            _guardIds.Add(zdo.m_uid);
+                        }
+                    }
+                    else if (kind == 2)
+                    {
+                        if (zdo.IsValid())
+                        {
+                            _chestCandidates.Add(zdo);
+                        }
+                    }
+                }
+
+                if ((processed & 1023) == 0 && Time.realtimeSinceStartup >= budgetEnd)
+                {
+                    break;
+                }
+            }
+
+            if (_cursor >= _snapshot.Count)
+            {
+                _snapshot = null;
+
+                if (_guards.Count == 0)
+                {
+                    Finish("没有找到你有权限的守护石");
+                    return;
+                }
+
+                _candidateCursor = 0;
+                _phase = Phase.ChestFilter;
+                VLog.Info($"远程存入：快照分类完成，守护石 {_guards.Count}，容器候选 {_chestCandidates.Count}。");
+            }
+        }
+
+        private static void UpdateChestFilter(float budgetEnd)
+        {
+            int processed = 0;
+
+            while (_candidateCursor < _chestCandidates.Count)
+            {
+                var zdo = _chestCandidates[_candidateCursor++];
+                processed++;
+
+                if (zdo != null && zdo.IsValid() && !_chests.ContainsKey(zdo.m_uid) && IsInAnyGuard(zdo.GetPosition()))
+                {
+                    if (zdo.GetInt(ZDOVars.s_inUse) == 1)
+                    {
+                        _skipped++;
+                    }
+                    else
+                    {
+                        _chests[zdo.m_uid] = zdo;
+                    }
+                }
+
+                if ((processed & 1023) == 0 && Time.realtimeSinceStartup >= budgetEnd)
+                {
+                    break;
+                }
+            }
+
+            if (_candidateCursor >= _chestCandidates.Count)
+            {
+                _chestCandidates.Clear();
+                _chestList.Clear();
+                _chestList.AddRange(_chests.Values);
+                _chestIndex = 0;
+                UpdateCache();
+                _phase = Phase.Stacking;
+                VLog.Info($"远程存入：目标箱子 {_chestList.Count} 个（有权限守护石 {_guards.Count} 个）。");
+            }
+        }
+
+        /// <summary>prefab 分类：0=忽略, 1=守护石, 2=可存容器（缓存）。</summary>
+        private static byte ClassifyPrefab(int prefabHash)
+        {
+            if (_prefabKind.TryGetValue(prefabHash, out var cached))
+            {
+                return cached;
+            }
+
+            byte kind = 0;
+            var go = ZNetScene.instance != null ? ZNetScene.instance.GetPrefab(prefabHash) : null;
+
+            if (go != null)
+            {
+                if (go.GetComponent<PrivateArea>() != null)
+                {
+                    kind = 1;
+                }
+                else if (go.GetComponent<Container>() != null &&
+                         go.GetComponent<Ship>() == null &&
+                         go.GetComponent<Vagon>() == null &&
+                         !go.name.ToLower().Contains("tombstone"))
+                {
+                    kind = 2;
+                }
+            }
+
+            _prefabKind[prefabHash] = kind;
+            return kind;
+        }
+
+        // ---------------- 降级：prefab 名扫描 ----------------
+
+        private static void UpdateGuards(float budgetEnd)
+        {
+            while (Time.realtimeSinceStartup < budgetEnd)
+            {
+                if (_prefabIndex >= _prefabNames.Count)
+                {
+                    if (_guards.Count == 0)
+                    {
+                        Finish("没有找到你有权限的守护石");
+                        return;
+                    }
+
+                    BeginChestScan();
+                    break;
+                }
+
+                var name = _prefabNames[_prefabIndex];
+                var sw = Stopwatch.StartNew();
+                bool done = ZDOMan.instance.GetAllZDOsWithPrefabIterative(name, _found, ref _iter);
+                sw.Stop();
+                VoidChestPerf.AddScan(sw.Elapsed.TotalMilliseconds);
+
+                if (done)
+                {
+                    foreach (var zdo in _found)
+                    {
+                        if (!zdo.IsValid() || !HasAccess(zdo))
+                        {
+                            continue;
+                        }
+
+                        _guards.Add(new GuardInfo
+                        {
+                            Pos = zdo.GetPosition(),
+                            Radius = GetGuardRadius(zdo.GetPrefab())
+                        });
+                        _guardIds.Add(zdo.m_uid);
+                    }
+
+                    _found.Clear();
+                    _iter = 0;
+                    _prefabIndex++;
+                }
+            }
+        }
+
         private static void BeginChestScan()
         {
             _prefabNames = CollectPrefabs(go =>
@@ -246,13 +437,11 @@ namespace VoidChest
                     return false;
                 }
 
-                // 排除船、车
                 if (go.GetComponent<Ship>() != null || go.GetComponent<Vagon>() != null)
                 {
                     return false;
                 }
 
-                // 排除墓碑
                 if (go.name.ToLower().Contains("tombstone"))
                 {
                     return false;
@@ -268,6 +457,139 @@ namespace VoidChest
 
             VLog.Info($"远程存入：开始扫描容器（{_prefabNames.Count} 种 prefab），有权限守护石 {_guards.Count} 个。");
         }
+
+        private static void UpdateChests(float budgetEnd)
+        {
+            while (Time.realtimeSinceStartup < budgetEnd)
+            {
+                if (_prefabIndex >= _prefabNames.Count)
+                {
+                    _chestList.Clear();
+                    _chestList.AddRange(_chests.Values);
+                    _chestIndex = 0;
+                    UpdateCache();
+                    _phase = Phase.Stacking;
+                    VLog.Info($"远程存入：目标箱子 {_chestList.Count} 个（有权限守护石 {_guards.Count} 个）。");
+                    break;
+                }
+
+                var name = _prefabNames[_prefabIndex];
+                var sw = Stopwatch.StartNew();
+                bool done = ZDOMan.instance.GetAllZDOsWithPrefabIterative(name, _found, ref _iter);
+                sw.Stop();
+                VoidChestPerf.AddScan(sw.Elapsed.TotalMilliseconds);
+
+                if (done)
+                {
+                    foreach (var zdo in _found)
+                    {
+                        if (!zdo.IsValid() || _chests.ContainsKey(zdo.m_uid) || !IsInAnyGuard(zdo.GetPosition()))
+                        {
+                            continue;
+                        }
+
+                        if (zdo.GetInt(ZDOVars.s_inUse) == 1)
+                        {
+                            _skipped++;
+                            continue;
+                        }
+
+                        _chests[zdo.m_uid] = zdo;
+                    }
+
+                    _found.Clear();
+                    _iter = 0;
+                    _prefabIndex++;
+                }
+            }
+        }
+
+        // ---------------- 缓存 ----------------
+
+        private static bool TryUseCache()
+        {
+            if (VoidChestPlugin.RemoteStoreCacheSeconds.Value <= 0f)
+            {
+                return false;
+            }
+
+            if (_cachedGuardIds.Count == 0 && _cachedChestIds.Count == 0)
+            {
+                return false;
+            }
+
+            if (Time.realtimeSinceStartup - _cacheTime > VoidChestPlugin.RemoteStoreCacheSeconds.Value)
+            {
+                return false;
+            }
+
+            foreach (var id in _cachedGuardIds)
+            {
+                var zdo = ZDOMan.instance.GetZDO(id);
+                if (zdo == null || !zdo.IsValid())
+                {
+                    continue;
+                }
+
+                _guards.Add(new GuardInfo
+                {
+                    Pos = zdo.GetPosition(),
+                    Radius = GetGuardRadius(zdo.GetPrefab())
+                });
+                _guardIds.Add(id);
+            }
+
+            if (_guards.Count == 0)
+            {
+                return false;
+            }
+
+            foreach (var id in _cachedChestIds)
+            {
+                var zdo = ZDOMan.instance.GetZDO(id);
+                if (zdo == null || !zdo.IsValid())
+                {
+                    continue;
+                }
+
+                if (zdo.GetInt(ZDOVars.s_inUse) == 1)
+                {
+                    _skipped++;
+                    continue;
+                }
+
+                _chests[id] = zdo;
+            }
+
+            if (_chests.Count == 0)
+            {
+                return false;
+            }
+
+            _chestList.Clear();
+            _chestList.AddRange(_chests.Values);
+
+            VLog.Info($"远程存入：缓存命中（缓存于 {Time.realtimeSinceStartup - _cacheTime:F0}s 前，守护石 {_guards.Count}，箱子 {_chestList.Count}）。");
+            return true;
+        }
+
+        private static void UpdateCache()
+        {
+            _cachedGuardIds.Clear();
+            _cachedGuardIds.AddRange(_guardIds);
+
+            _cachedChestIds.Clear();
+            foreach (var id in _chests.Keys)
+            {
+                _cachedChestIds.Add(id);
+            }
+
+            _cacheTime = Time.realtimeSinceStartup;
+
+            VLog.Debug($"远程存入：缓存已更新（守护石 {_cachedGuardIds.Count}，箱子 {_cachedChestIds.Count}）。");
+        }
+
+        // ---------------- 堆叠 / 收尾 ----------------
 
         private static void ProcessChest(ZDO zdo)
         {
@@ -359,6 +681,8 @@ namespace VoidChest
 
             _player = null;
         }
+
+        // ---------------- 辅助 ----------------
 
         private static List<string> CollectPrefabs(Func<GameObject, bool> predicate)
         {

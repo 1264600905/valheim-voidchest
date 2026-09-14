@@ -12,7 +12,7 @@ namespace VoidChest
     {
         public const string Guid = "liu.valheim.voidchest";
         public const string PluginName = "Void Chest";
-        public const string PluginVersion = "0.2.0";
+        public const string PluginVersion = "0.3.1";
 
         internal static VoidChestPlugin Instance;
         internal static ManualLogSource Log;
@@ -21,6 +21,7 @@ namespace VoidChest
         internal static ConfigEntry<bool> DebugLog;
 
         internal static ConfigEntry<bool> EnableRemoteStore;
+        internal static ConfigEntry<float> RemoteStoreCacheSeconds;
         internal static ConfigEntry<bool> EnableNearbyStore;
         internal static ConfigEntry<float> NearbyStoreRange;
         internal static ConfigEntry<bool> NearbyStoreCheckWard;
@@ -44,6 +45,10 @@ namespace VoidChest
 
             EnableRemoteStore = Config.Bind("RemoteStore", "Enabled", true,
                 "启用虚空宝箱界面上的\"远程存入\"按钮（守护石仓库）。仅单机/主机模式可用。");
+            RemoteStoreCacheSeconds = Config.Bind("RemoteStore", "CacheSeconds", 300f,
+                new ConfigDescription(
+                    "远程存入的扫描结果缓存时间（秒）。0 = 每次重新扫描（慢）。",
+                    new AcceptableValueRange<float>(0f, 3600f)));
             EnableNearbyStore = Config.Bind("NearbyStore", "Enabled", true,
                 "启用虚空宝箱界面上的\"附近存储\"按钮（不影响原版与 V+ 的堆叠按钮行为）。");
             NearbyStoreRange = Config.Bind("NearbyStore", "Range", 30f,
