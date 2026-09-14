@@ -10,6 +10,10 @@ namespace VoidChest
     /// P2 守护石远程仓库：扫描玩家有权限的守护石领地范围内的所有箱子，远程堆入背包物品。
     /// 仅在主机/单机模式执行（服务端 ZDO 权威）；专用服务器需服务端安装本 mod。
     /// 优先使用反射全量快照（一次遍历所有 ZDO），失败时降级为按 prefab 名分帧扫描。
+    ///
+    /// 重要：全程只保存 ZDOID，使用时用 ZDOMan.GetZDO(id) 重新获取实时对象。
+    /// ZDO 对象会被对象池复用，长期持有对象引用可能指向被复用的新对象（数据污染风险）。
+    /// 读-改-写在同一主线程 Update 内原子完成，不会被其他玩家操作打断。
     /// </summary>
     internal static class VoidChestRemoteStore
     {
@@ -35,12 +39,12 @@ namespace VoidChest
         private static Player _player;
         private static long _playerId;
 
-        // 反射全量快照
+        // 反射全量快照（仅存 ID，使用时重新解析）
         private static bool _objectsByIdInit;
         private static AccessTools.FieldRef<ZDOMan, Dictionary<ZDOID, ZDO>> _objectsByIdRef;
-        private static List<ZDO> _snapshot;
+        private static List<ZDOID> _snapshot;
         private static int _cursor;
-        private static readonly List<ZDO> _chestCandidates = new List<ZDO>();
+        private static readonly List<ZDOID> _chestCandidates = new List<ZDOID>();
         private static int _candidateCursor;
         private static readonly Dictionary<int, byte> _prefabKind = new Dictionary<int, byte>();
 
@@ -50,11 +54,11 @@ namespace VoidChest
         private static readonly List<ZDO> _found = new List<ZDO>();
         private static int _iter;
 
-        // 结果
+        // 结果（只保存 ID / 值，不保存对象引用）
         private static readonly List<GuardInfo> _guards = new List<GuardInfo>();
         private static readonly List<ZDOID> _guardIds = new List<ZDOID>();
-        private static readonly Dictionary<ZDOID, ZDO> _chests = new Dictionary<ZDOID, ZDO>();
-        private static readonly List<ZDO> _chestList = new List<ZDO>();
+        private static readonly List<ZDOID> _chests = new List<ZDOID>();
+        private static readonly HashSet<ZDOID> _chestSeen = new HashSet<ZDOID>();
         private static int _chestIndex;
 
         private static int _moved;
@@ -102,7 +106,7 @@ namespace VoidChest
             _guards.Clear();
             _guardIds.Clear();
             _chests.Clear();
-            _chestList.Clear();
+            _chestSeen.Clear();
             _chestCandidates.Clear();
             _found.Clear();
 
@@ -118,7 +122,7 @@ namespace VoidChest
             if (TryUseCache())
             {
                 _phase = Phase.Stacking;
-                VLog.Info($"远程存入开始：缓存命中（守护石 {_guards.Count}，箱子 {_chestList.Count}）。");
+                VLog.Info($"远程存入开始：缓存命中（守护石 {_guards.Count}，箱子 {_chests.Count}）。");
                 return;
             }
 
@@ -186,13 +190,13 @@ namespace VoidChest
             {
                 while (Time.realtimeSinceStartup < budgetEnd)
                 {
-                    if (_chestIndex >= _chestList.Count)
+                    if (_chestIndex >= _chests.Count)
                     {
                         Finish(null);
                         return;
                     }
 
-                    ProcessChest(_chestList[_chestIndex++]);
+                    ProcessChest(_chests[_chestIndex++]);
                 }
             }
         }
@@ -221,18 +225,15 @@ namespace VoidChest
             return _objectsByIdRef != null;
         }
 
-        private static List<ZDO> SnapshotZdos()
+        private static List<ZDOID> SnapshotZdos()
         {
             var sw = Stopwatch.StartNew();
             var dict = _objectsByIdRef(ZDOMan.instance);
-            var list = new List<ZDO>(dict.Count);
+            var list = new List<ZDOID>(dict.Count);
 
             foreach (var kv in dict)
             {
-                if (kv.Value != null)
-                {
-                    list.Add(kv.Value);
-                }
+                list.Add(kv.Key);
             }
 
             sw.Stop();
@@ -253,9 +254,10 @@ namespace VoidChest
 
             while (_cursor < _snapshot.Count)
             {
-                var zdo = _snapshot[_cursor++];
+                var id = _snapshot[_cursor++];
                 processed++;
 
+                var zdo = ZDOMan.instance.GetZDO(id);
                 if (zdo != null)
                 {
                     byte kind;
@@ -270,22 +272,19 @@ namespace VoidChest
 
                     if (kind == 1)
                     {
-                        if (zdo.IsValid() && HasAccess(zdo))
+                        if (HasAccess(zdo))
                         {
                             _guards.Add(new GuardInfo
                             {
                                 Pos = zdo.GetPosition(),
                                 Radius = GetGuardRadius(zdo.GetPrefab())
                             });
-                            _guardIds.Add(zdo.m_uid);
+                            _guardIds.Add(id);
                         }
                     }
                     else if (kind == 2)
                     {
-                        if (zdo.IsValid())
-                        {
-                            _chestCandidates.Add(zdo);
-                        }
+                        _chestCandidates.Add(id);
                     }
                 }
 
@@ -317,18 +316,23 @@ namespace VoidChest
 
             while (_candidateCursor < _chestCandidates.Count)
             {
-                var zdo = _chestCandidates[_candidateCursor++];
+                var id = _chestCandidates[_candidateCursor++];
                 processed++;
 
-                if (zdo != null && zdo.IsValid() && !_chests.ContainsKey(zdo.m_uid) && IsInAnyGuard(zdo.GetPosition()))
+                if (!_chestSeen.Contains(id))
                 {
-                    if (zdo.GetInt(ZDOVars.s_inUse) == 1)
+                    var zdo = ZDOMan.instance.GetZDO(id);
+                    if (zdo != null && IsInAnyGuard(zdo.GetPosition()))
                     {
-                        _skipped++;
-                    }
-                    else
-                    {
-                        _chests[zdo.m_uid] = zdo;
+                        if (zdo.GetInt(ZDOVars.s_inUse) == 1)
+                        {
+                            _skipped++;
+                        }
+                        else
+                        {
+                            _chestSeen.Add(id);
+                            _chests.Add(id);
+                        }
                     }
                 }
 
@@ -341,12 +345,10 @@ namespace VoidChest
             if (_candidateCursor >= _chestCandidates.Count)
             {
                 _chestCandidates.Clear();
-                _chestList.Clear();
-                _chestList.AddRange(_chests.Values);
                 _chestIndex = 0;
                 UpdateCache();
                 _phase = Phase.Stacking;
-                VLog.Info($"远程存入：目标箱子 {_chestList.Count} 个（有权限守护石 {_guards.Count} 个）。");
+                VLog.Info($"远程存入：目标箱子 {_chests.Count} 个（有权限守护石 {_guards.Count} 个）。");
             }
         }
 
@@ -464,12 +466,10 @@ namespace VoidChest
             {
                 if (_prefabIndex >= _prefabNames.Count)
                 {
-                    _chestList.Clear();
-                    _chestList.AddRange(_chests.Values);
                     _chestIndex = 0;
                     UpdateCache();
                     _phase = Phase.Stacking;
-                    VLog.Info($"远程存入：目标箱子 {_chestList.Count} 个（有权限守护石 {_guards.Count} 个）。");
+                    VLog.Info($"远程存入：目标箱子 {_chests.Count} 个（有权限守护石 {_guards.Count} 个）。");
                     break;
                 }
 
@@ -483,7 +483,7 @@ namespace VoidChest
                 {
                     foreach (var zdo in _found)
                     {
-                        if (!zdo.IsValid() || _chests.ContainsKey(zdo.m_uid) || !IsInAnyGuard(zdo.GetPosition()))
+                        if (!zdo.IsValid() || _chestSeen.Contains(zdo.m_uid) || !IsInAnyGuard(zdo.GetPosition()))
                         {
                             continue;
                         }
@@ -494,7 +494,8 @@ namespace VoidChest
                             continue;
                         }
 
-                        _chests[zdo.m_uid] = zdo;
+                        _chestSeen.Add(zdo.m_uid);
+                        _chests.Add(zdo.m_uid);
                     }
 
                     _found.Clear();
@@ -558,7 +559,10 @@ namespace VoidChest
                     continue;
                 }
 
-                _chests[id] = zdo;
+                if (_chestSeen.Add(id))
+                {
+                    _chests.Add(id);
+                }
             }
 
             if (_chests.Count == 0)
@@ -566,10 +570,7 @@ namespace VoidChest
                 return false;
             }
 
-            _chestList.Clear();
-            _chestList.AddRange(_chests.Values);
-
-            VLog.Info($"远程存入：缓存命中（缓存于 {Time.realtimeSinceStartup - _cacheTime:F0}s 前，守护石 {_guards.Count}，箱子 {_chestList.Count}）。");
+            VLog.Info($"远程存入：缓存命中（缓存于 {Time.realtimeSinceStartup - _cacheTime:F0}s 前，守护石 {_guards.Count}，箱子 {_chests.Count}）。");
             return true;
         }
 
@@ -579,10 +580,7 @@ namespace VoidChest
             _cachedGuardIds.AddRange(_guardIds);
 
             _cachedChestIds.Clear();
-            foreach (var id in _chests.Keys)
-            {
-                _cachedChestIds.Add(id);
-            }
+            _cachedChestIds.AddRange(_chests);
 
             _cacheTime = Time.realtimeSinceStartup;
 
@@ -591,7 +589,7 @@ namespace VoidChest
 
         // ---------------- 堆叠 / 收尾 ----------------
 
-        private static void ProcessChest(ZDO zdo)
+        private static void ProcessChest(ZDOID id)
         {
             var playerInv = _player != null ? _player.GetInventory() : null;
             if (playerInv == null)
@@ -601,7 +599,9 @@ namespace VoidChest
 
             try
             {
-                if (!zdo.IsValid())
+                // 重新获取实时对象（对象池可能已复用，绝不能持有旧引用）
+                var zdo = ZDOMan.instance.GetZDO(id);
+                if (zdo == null || !zdo.IsValid())
                 {
                     _skipped++;
                     return;
@@ -643,7 +643,7 @@ namespace VoidChest
             }
             catch (Exception e)
             {
-                VLog.Warn($"远程存入：处理箱子 {zdo.m_uid} 失败: {e.Message}");
+                VLog.Warn($"远程存入：处理箱子 {id} 失败: {e.Message}");
                 _skipped++;
             }
         }
