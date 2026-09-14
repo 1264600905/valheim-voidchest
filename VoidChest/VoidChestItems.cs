@@ -64,7 +64,7 @@ namespace VoidChest
                     "blackforge", new[]
                 {
                     new RequirementConfig(Magic, 1),
-                    new RequirementConfig("Flametal", 10),
+                    new RequirementConfig("FlametalNew", 10),
                     new RequirementConfig("FaderDrop", 2),
                 });
 
