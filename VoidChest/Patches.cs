@@ -101,13 +101,14 @@ namespace VoidChest
         }
     }
 
-    /// <summary>容器界面显示后刷新自定义按钮显隐。</summary>
+    /// <summary>容器界面显示后刷新自定义按钮显隐；同时输出配方诊断。</summary>
     [HarmonyPatch(typeof(InventoryGui), nameof(InventoryGui.Show))]
     internal static class InventoryGuiShowPatch
     {
         private static void Postfix(Container container)
         {
             VoidChestUi.OnContainerShown(container);
+            VoidChestDiagnostics.DumpRecipesAndInventory();
         }
     }
 
