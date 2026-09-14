@@ -33,6 +33,13 @@ namespace VoidChest
             public float Radius;
         }
 
+        /// <summary>快照条目：只保存 ID 与 prefab hash（不持有对象引用）。</summary>
+        private struct SnapshotEntry
+        {
+            public ZDOID Id;
+            public int Prefab;
+        }
+
         internal static bool IsRunning => _phase != Phase.Idle;
 
         private static Phase _phase = Phase.Idle;
@@ -42,7 +49,7 @@ namespace VoidChest
         // 反射全量快照（仅存 ID，使用时重新解析）
         private static bool _objectsByIdInit;
         private static AccessTools.FieldRef<ZDOMan, Dictionary<ZDOID, ZDO>> _objectsByIdRef;
-        private static List<ZDOID> _snapshot;
+        private static List<SnapshotEntry> _snapshot;
         private static int _cursor;
         private static readonly List<ZDOID> _chestCandidates = new List<ZDOID>();
         private static int _candidateCursor;
@@ -160,7 +167,7 @@ namespace VoidChest
                 return;
             }
 
-            float budgetEnd = Time.realtimeSinceStartup + 0.004f;
+            float budgetEnd = Time.realtimeSinceStartup + VoidChestPerf.FrameBudgetSeconds;
 
             if (_phase == Phase.FullScan)
             {
@@ -225,15 +232,26 @@ namespace VoidChest
             return _objectsByIdRef != null;
         }
 
-        private static List<ZDOID> SnapshotZdos()
+        private static List<SnapshotEntry> SnapshotZdos()
         {
             var sw = Stopwatch.StartNew();
             var dict = _objectsByIdRef(ZDOMan.instance);
-            var list = new List<ZDOID>(dict.Count);
+            var list = new List<SnapshotEntry>(dict.Count);
 
+            // 同一帧内读取 prefab hash（对象引用瞬时使用，不跨帧保存）
             foreach (var kv in dict)
             {
-                list.Add(kv.Key);
+                var zdo = kv.Value;
+                if (zdo == null)
+                {
+                    continue;
+                }
+
+                list.Add(new SnapshotEntry
+                {
+                    Id = kv.Key,
+                    Prefab = zdo.GetPrefab()
+                });
             }
 
             sw.Stop();
@@ -250,42 +268,41 @@ namespace VoidChest
                 return;
             }
 
+            var sw = Stopwatch.StartNew();
             int processed = 0;
 
             while (_cursor < _snapshot.Count)
             {
-                var id = _snapshot[_cursor++];
+                var entry = _snapshot[_cursor++];
                 processed++;
 
-                var zdo = ZDOMan.instance.GetZDO(id);
-                if (zdo != null)
+                byte kind;
+                try
                 {
-                    byte kind;
-                    try
-                    {
-                        kind = ClassifyPrefab(zdo.GetPrefab());
-                    }
-                    catch
-                    {
-                        kind = 0;
-                    }
+                    kind = ClassifyPrefab(entry.Prefab);
+                }
+                catch
+                {
+                    kind = 0;
+                }
 
-                    if (kind == 1)
+                if (kind == 1)
+                {
+                    // 守护石数量极少：这里才需要实时对象（权限/位置）
+                    var zdo = ZDOMan.instance.GetZDO(entry.Id);
+                    if (zdo != null && HasAccess(zdo))
                     {
-                        if (HasAccess(zdo))
+                        _guards.Add(new GuardInfo
                         {
-                            _guards.Add(new GuardInfo
-                            {
-                                Pos = zdo.GetPosition(),
-                                Radius = GetGuardRadius(zdo.GetPrefab())
-                            });
-                            _guardIds.Add(id);
-                        }
+                            Pos = zdo.GetPosition(),
+                            Radius = GetGuardRadius(entry.Prefab)
+                        });
+                        _guardIds.Add(entry.Id);
                     }
-                    else if (kind == 2)
-                    {
-                        _chestCandidates.Add(id);
-                    }
+                }
+                else if (kind == 2)
+                {
+                    _chestCandidates.Add(entry.Id);
                 }
 
                 if ((processed & 1023) == 0 && Time.realtimeSinceStartup >= budgetEnd)
@@ -293,6 +310,9 @@ namespace VoidChest
                     break;
                 }
             }
+
+            sw.Stop();
+            VoidChestPerf.AddClassify(sw.Elapsed.TotalMilliseconds);
 
             if (_cursor >= _snapshot.Count)
             {
@@ -312,6 +332,7 @@ namespace VoidChest
 
         private static void UpdateChestFilter(float budgetEnd)
         {
+            var sw = Stopwatch.StartNew();
             int processed = 0;
 
             while (_candidateCursor < _chestCandidates.Count)
@@ -341,6 +362,9 @@ namespace VoidChest
                     break;
                 }
             }
+
+            sw.Stop();
+            VoidChestPerf.AddFilter(sw.Elapsed.TotalMilliseconds);
 
             if (_candidateCursor >= _chestCandidates.Count)
             {

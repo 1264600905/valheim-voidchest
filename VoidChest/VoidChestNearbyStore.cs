@@ -76,7 +76,7 @@ namespace VoidChest
             }
 
             // 主循环驱动队列推进；单机/主机同步 RPC 时在时间预算内连续处理多个容器
-            float budgetEnd = Time.realtimeSinceStartup + 0.004f;
+            float budgetEnd = Time.realtimeSinceStartup + VoidChestPerf.FrameBudgetSeconds;
 
             while (true)
             {
