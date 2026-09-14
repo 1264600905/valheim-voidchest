@@ -20,6 +20,7 @@ namespace VoidChest
         internal static ConfigEntry<KeyCode> OpenHotkey;
         internal static ConfigEntry<bool> DebugLog;
 
+        internal static ConfigEntry<bool> EnableRemoteStore;
         internal static ConfigEntry<bool> EnableNearbyStore;
         internal static ConfigEntry<float> NearbyStoreRange;
         internal static ConfigEntry<bool> NearbyStoreCheckWard;
@@ -41,6 +42,8 @@ namespace VoidChest
             DebugLog = Config.Bind("General", "DebugLog", true,
                 "输出详细调试日志（诊断用，默认开启）。");
 
+            EnableRemoteStore = Config.Bind("RemoteStore", "Enabled", true,
+                "启用虚空宝箱界面上的\"远程存入\"按钮（守护石仓库）。仅单机/主机模式可用。");
             EnableNearbyStore = Config.Bind("NearbyStore", "Enabled", true,
                 "启用虚空宝箱界面上的\"附近存储\"按钮（不影响原版与 V+ 的堆叠按钮行为）。");
             NearbyStoreRange = Config.Bind("NearbyStore", "Range", 30f,
@@ -80,12 +83,13 @@ namespace VoidChest
             VPlusGate.Install(_harmony);
             VoidChestItems.Register();
 
-            VLog.Info($"{PluginName} v{PluginVersion} 初始化完成。热键={OpenHotkey.Value}, Debug={DebugLog.Value}, 附近存储={EnableNearbyStore.Value}");
+            VLog.Info($"{PluginName} v{PluginVersion} 初始化完成。热键={OpenHotkey.Value}, Debug={DebugLog.Value}, 附近存储={EnableNearbyStore.Value}, 远程存入={EnableRemoteStore.Value}");
         }
 
         private void Update()
         {
             VoidChestNearbyStore.Update();
+            VoidChestRemoteStore.Update();
 
             var player = Player.m_localPlayer;
             if (player == null || InventoryGui.instance == null)

@@ -13,16 +13,6 @@ namespace VoidChest
         internal const string CustomKey = "liu_VoidChest";
         private const int CurrentVersion = 1;
 
-        // 性能统计
-        internal static int SaveCount;
-        internal static double SaveTotalMs;
-
-        internal static void ResetStats()
-        {
-            SaveCount = 0;
-            SaveTotalMs = 0;
-        }
-
         [Serializable]
         private class Blob
         {
@@ -120,10 +110,9 @@ namespace VoidChest
                 player.m_customData[CustomKey] = JsonUtility.ToJson(blob);
 
                 sw.Stop();
-                SaveCount++;
-                SaveTotalMs += sw.Elapsed.TotalMilliseconds;
+                VoidChestPerf.AddDataWrite(sw.Elapsed.TotalMilliseconds);
 
-                VLog.Debug($"SaveFrom: 保存 {inv.NrOfItems()} 件物品，Base64 {blob.data.Length} 字符，耗时 {sw.Elapsed.TotalMilliseconds:F2}ms（累计 {SaveCount} 次 {SaveTotalMs:F1}ms）。");
+                VLog.Debug($"SaveFrom: 保存 {inv.NrOfItems()} 件物品，Base64 {blob.data.Length} 字符，耗时 {sw.Elapsed.TotalMilliseconds:F2}ms（累计 {VoidChestPerf.DataWriteCount} 次 {VoidChestPerf.DataWriteMs:F1}ms）。");
             }
             catch (Exception e)
             {

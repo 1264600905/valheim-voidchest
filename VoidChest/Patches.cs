@@ -85,7 +85,7 @@ namespace VoidChest
                 return true;
             }
 
-            __result = VoidChestNearbyStore.FilteredStackAll(__instance, fromInventory, false);
+            __result = VoidChestFilter.StackAllFiltered(__instance, fromInventory);
             return false;
         }
     }

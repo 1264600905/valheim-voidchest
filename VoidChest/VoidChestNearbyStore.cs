@@ -9,11 +9,12 @@ namespace VoidChest
     /// <summary>
     /// 自研"附近存储"：把背包物品堆进周围箱子。
     /// 走原版 Container.StackAll() RPC 链路（联机安全），串行队列 + 超时。
-    /// 堆叠时通过 FilterActive + Inventory.StackAll patch 应用可选过滤。
+    /// 堆叠时通过 FilterActive + Inventory.StackAll patch 应用过滤（VoidChestFilter）。
     /// </summary>
     internal static class VoidChestNearbyStore
     {
         internal static bool FilterActive { get; private set; }
+        internal static bool IsRunning => _running;
 
         private static readonly List<Container> _queue = new List<Container>();
         private static readonly HashSet<Container> _seen = new HashSet<Container>();
@@ -27,14 +28,7 @@ namespace VoidChest
         private static int _processed;
         private static int _timedOut;
         private static int _rejected;
-
-        // 性能统计
-        private static float _startRealtime;
-        private static float _scanMs;
         private static float _currentSentAt;
-        private static double _stackMs;
-        private static int _stackCalls;
-        private static double _maxContainerMs;
 
         internal static void Start(Player player)
         {
@@ -43,9 +37,9 @@ namespace VoidChest
                 return;
             }
 
-            if (_running)
+            if (_running || VoidChestRemoteStore.IsRunning)
             {
-                VoidChestManager.Message(player, "附近存储正在进行中...");
+                VoidChestManager.Message(player, "已有存储操作正在进行中...");
                 return;
             }
 
@@ -63,15 +57,12 @@ namespace VoidChest
             _processed = 0;
             _timedOut = 0;
             _rejected = 0;
-            _startRealtime = Time.realtimeSinceStartup;
-            _stackMs = 0;
-            _stackCalls = 0;
-            _maxContainerMs = 0;
-            VoidChestSave.ResetStats();
             _running = true;
             FilterActive = true;
             _waitTimer = 0f;
             _current = null;
+
+            VoidChestPerf.Reset();
 
             VLog.Info($"附近存储开始：{containers.Count} 个容器，背包物品 {_beforeCount}。");
             SendNext();
@@ -134,11 +125,7 @@ namespace VoidChest
                 return;
             }
 
-            double ms = (Time.realtimeSinceStartup - _currentSentAt) * 1000.0;
-            if (ms > _maxContainerMs)
-            {
-                _maxContainerMs = ms;
-            }
+            VoidChestPerf.NoteStep((Time.realtimeSinceStartup - _currentSentAt) * 1000.0);
 
             _processed++;
 
@@ -149,56 +136,6 @@ namespace VoidChest
             }
 
             _current = null;
-        }
-
-        /// <summary>替换原版 Inventory.StackAll 的过滤版本（仅在附近存储流程中生效）。</summary>
-        internal static int FilteredStackAll(Inventory container, Inventory from, bool message)
-        {
-            var sw = Stopwatch.StartNew();
-            var items = new List<ItemDrop.ItemData>(from.GetAllItems());
-            int moved = 0;
-            var player = Player.m_localPlayer;
-
-            foreach (var item in items)
-            {
-                if (item == null)
-                {
-                    continue;
-                }
-
-                if (!container.ContainsItemByName(item.m_shared.m_name))
-                {
-                    continue;
-                }
-
-                if (player != null && player.IsItemEquiped(item))
-                {
-                    continue;
-                }
-
-                if (ShouldSkip(item))
-                {
-                    if (VLog.DebugEnabled)
-                    {
-                        VLog.Debug($"附近存储：过滤 {item.m_shared.m_name}");
-                    }
-                    continue;
-                }
-
-                if (container.AddItem(item))
-                {
-                    from.RemoveItem(item);
-                    moved++;
-                }
-            }
-
-            sw.Stop();
-            _stackCalls++;
-            _stackMs += sw.Elapsed.TotalMilliseconds;
-
-            VLog.Debug($"FilteredStackAll: 容器={container.GetName()}，移动 {moved} 堆叠，耗时 {sw.Elapsed.TotalMilliseconds:F2}ms。");
-
-            return moved;
         }
 
         private static void SendNext()
@@ -271,9 +208,8 @@ namespace VoidChest
                 VoidChestManager.Message(player, message);
             }
 
-            double totalMs = (Time.realtimeSinceStartup - _startRealtime) * 1000.0;
             VLog.Info($"附近存储完成：移动 {moved} 件，容器 {_processed}，拒绝 {_rejected}，超时 {_timedOut}。");
-            VLog.Info($"附近存储性能：总耗时 {totalMs:F0}ms | 扫描 {_scanMs:F1}ms | 容器 {_processed} | 堆叠 {_stackCalls} 次 {_stackMs:F1}ms | 最长响应 {_maxContainerMs:F0}ms | 存档回写 {VoidChestSave.SaveCount} 次 {VoidChestSave.SaveTotalMs:F1}ms | 均值 {totalMs / Math.Max(1, _processed):F0}ms/容器");
+            VLog.Info(VoidChestPerf.Summary("附近存储", moved, _processed, _rejected, _timedOut));
         }
 
         private static List<Container> FindContainers(Player player)
@@ -332,7 +268,7 @@ namespace VoidChest
                     .CompareTo(Vector3.Distance(player.transform.position, b.transform.position)));
 
             sw.Stop();
-            _scanMs = (float)sw.Elapsed.TotalMilliseconds;
+            VoidChestPerf.AddScan(sw.Elapsed.TotalMilliseconds);
 
             return result;
         }
@@ -366,55 +302,6 @@ namespace VoidChest
             catch (Exception e)
             {
                 VLog.Debug("ZDO 占用检查失败: " + e.Message);
-            }
-
-            return false;
-        }
-
-        private static bool ShouldSkip(ItemDrop.ItemData item)
-        {
-            // 1) 物品栏第一排（快捷栏，一般放装备）
-            if (VoidChestPlugin.NearbyStoreIgnoreHotbar.Value && item.m_gridPos.y == 0)
-            {
-                if (VLog.DebugEnabled)
-                {
-                    VLog.Debug($"附近存储：跳过快捷栏物品 {item.m_shared.m_name}");
-                }
-                return true;
-            }
-
-            // 2) ExtraSlots 任意专用槽位（快捷/弹药/食物/杂项/额外装备/自定义）
-            if (ExtraSlotsCompat.IsInExtraSlot(item))
-            {
-                if (VLog.DebugEnabled)
-                {
-                    VLog.Debug($"附近存储：跳过额外槽位物品 {item.m_shared.m_name}");
-                }
-                return true;
-            }
-
-            // 3) 可选过滤：弹药 / 食物 / 蜜酒
-            var shared = item.m_shared;
-            var type = shared.m_itemType;
-
-            if (VoidChestPlugin.NearbyStoreIgnoreAmmo.Value &&
-                (type == ItemDrop.ItemData.ItemType.Ammo || type == ItemDrop.ItemData.ItemType.AmmoNonEquipable))
-            {
-                return true;
-            }
-
-            if (type == ItemDrop.ItemData.ItemType.Consumable)
-            {
-                bool isFood = shared.m_food > 0f;
-                if (isFood && VoidChestPlugin.NearbyStoreIgnoreFood.Value)
-                {
-                    return true;
-                }
-
-                if (!isFood && VoidChestPlugin.NearbyStoreIgnoreMead.Value)
-                {
-                    return true;
-                }
             }
 
             return false;
